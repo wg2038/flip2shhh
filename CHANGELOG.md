@@ -2,6 +2,12 @@
 
 All notable changes to flip2shhh are documented in this file.
 
+## [2.1.5] - 2026-09-07
+
+Easter egg branch. Same foundation as 1.0.0, plus a terminal player easter egg: seven taps on the version number from the About page. It ships an embedded song with synced lyrics behind a Linux-terminal-style interface, complete with a hand-tremor-aware typing effect and an ending that deletes the whole filesystem. The date on the first line of neofetch is not a placeholder.
+
+The app itself works exactly like 1.0.0.
+
 ## [1.0.0] - 2026-09-07
 
 Initial release.

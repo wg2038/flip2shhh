@@ -1,15 +1,24 @@
 package shhh.cicada.flip
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.NotificationManager
 import android.app.WallpaperManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.PowerManager
+import android.os.StatFs
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -19,6 +28,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -30,18 +40,25 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -57,19 +74,27 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindowProvider
@@ -80,9 +105,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
+import java.util.Locale
 
 
 // ════════════════════════════════════════════════════════════════════════
@@ -99,6 +128,11 @@ object OneUiTypography {
         fontSize = 17.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = (-0.2).sp
+    )
+    val SectionHeader = TextStyle(
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 0.5.sp
     )
     val ItemTitle = TextStyle(
         fontSize = 16.sp,
@@ -220,8 +254,13 @@ class MainActivity : ComponentActivity() {
             val notifPermissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()
             ) { }
+            // Whether the easter-egg terminal is forcing dark system bars; hoisted here so
+            // the theme re-applies the correct appearance the moment the terminal closes.
+            // Saveable: a process-death restore may reopen the terminal, and the override
+            // must survive alongside it.
+            var terminalBarsDark by rememberSaveable { mutableStateOf(false) }
 
-            FlipToShhhTheme(themeMode = themeMode) {
+            FlipToShhhTheme(themeMode = themeMode, barsDarkOverride = terminalBarsDark) {
                 var onboardingComplete by remember {
                     mutableStateOf(prefs.getBoolean(PrefsKeys.KEY_ONBOARDING_COMPLETE, false))
                 }
@@ -266,7 +305,8 @@ class MainActivity : ComponentActivity() {
                             },
                             onThemeModeChanged = { newTheme ->
                                 themeMode = newTheme
-                            }
+                            },
+                            onTerminalBarsDarkChanged = { terminalBarsDark = it }
                         )
                     }
                 }
@@ -276,7 +316,7 @@ class MainActivity : ComponentActivity() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Theme
+// Theme — One UI inspired scheme
 // ════════════════════════════════════════════════════════════════════════
 
 private fun extractSystemSeedColor(context: Context): Color? {
@@ -417,6 +457,7 @@ private fun applySystemBarAppearance(view: android.view.View, context: Context, 
 @Composable
 fun FlipToShhhTheme(
     themeMode: Int = 0,
+    barsDarkOverride: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -448,7 +489,7 @@ fun FlipToShhhTheme(
         }
     }
 
-    SystemBarsColorEffect(darkTheme = darkTheme)
+    SystemBarsColorEffect(darkTheme = darkTheme || barsDarkOverride)
 
     MaterialTheme(
         colorScheme = colorScheme,
@@ -715,7 +756,8 @@ fun OnboardingPermissionItem(
 fun FlipToShhhScreen(
     languageMode: Int,
     onLanguageModeChanged: (Int) -> Unit = {},
-    onThemeModeChanged: (Int) -> Unit = {}
+    onThemeModeChanged: (Int) -> Unit = {},
+    onTerminalBarsDarkChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -732,6 +774,7 @@ fun FlipToShhhScreen(
     var showPermissionDialog by remember { mutableStateOf(false) }
     var showSettingsScreen by rememberSaveable { mutableStateOf(false) }
     var showAboutScreen by rememberSaveable { mutableStateOf(false) }
+    var showEasterEggTerminal by rememberSaveable { mutableStateOf(false) }
 
     val updatePermissions: suspend () -> Unit = remember(context) {
         {
@@ -779,153 +822,175 @@ fun FlipToShhhScreen(
     }
 
     AnimatedContent(
-        targetState = showAboutScreen,
-        label = "about_screen",
+        targetState = showEasterEggTerminal,
+        label = "easter_egg_terminal",
         transitionSpec = {
-            if (targetState) {
-                (slideInVertically(animationSpec = tween(350, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeIn(tween(350, easing = FastOutSlowInEasing)))
-                    .togetherWith(fadeOut(tween(250, easing = FastOutSlowInEasing)))
-            } else {
-                fadeIn(tween(300, easing = FastOutSlowInEasing))
-                    .togetherWith(slideOutVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeOut(tween(250, easing = FastOutSlowInEasing)))
-            }
+            fadeIn(tween(350, easing = FastOutSlowInEasing)) togetherWith fadeOut(tween(250, easing = FastOutSlowInEasing))
         }
-    ) { showAbout ->
-        if (showAbout) {
-            AboutScreen(
-                languageMode = languageMode,
-                onBack = { showAboutScreen = false }
+    ) { isEggOpen ->
+        if (isEggOpen) {
+            EasterEggTerminalScreen(
+                onExit = {
+                    onTerminalBarsDarkChanged(false)
+                    showEasterEggTerminal = false
+                },
+                onBarsDarkChanged = onTerminalBarsDarkChanged
             )
         } else {
-    AnimatedContent(
-        targetState = showSettingsScreen,
-        label = "settings_screen",
-        transitionSpec = {
-            if (targetState) {
-                (slideInVertically(animationSpec = tween(350, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeIn(tween(350, easing = FastOutSlowInEasing)))
-                    .togetherWith(fadeOut(tween(250, easing = FastOutSlowInEasing)))
-            } else {
-                fadeIn(tween(300, easing = FastOutSlowInEasing))
-                    .togetherWith(slideOutVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeOut(tween(250, easing = FastOutSlowInEasing)))
-            }
-        }
-    ) { isSettingsOpen ->
-        if (isSettingsOpen) {
-            SettingsScreen(
-                languageMode = languageMode,
-                onLanguageModeChanged = onLanguageModeChanged,
-                onThemeModeChanged = onThemeModeChanged,
-                onShowAbout = { showAboutScreen = true },
-                onDismiss = { showSettingsScreen = false }
-            )
-        } else {
-            Box(modifier = Modifier.fillMaxSize()) {
-                Scaffold(
-                    containerColor = MaterialTheme.colorScheme.background
-                ) { paddingValues ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues)
-                            .padding(horizontal = 20.dp)
-                            .consumeWindowInsets(WindowInsets.navigationBars),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        // 1. One UI Large Title Header
-                        OneUiHeader(
-                            languageMode = languageMode,
-                            onOpenSettings = { showSettingsScreen = true }
-                        )
-
-                        // 2. Missing DND permission warning banner (only when DND not granted)
-                        if (!hasDndPermission) {
-                            // Follow the ACTIVE app theme (which may override the system setting).
-                            val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { openDndPermissionSettings(context) },
-                                shape = RoundedCornerShape(20.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (isDark) Color(0xFF78350F).copy(alpha = 0.5f) else Color(0xFFFFFBEB)
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 18.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(
-                                        modifier = Modifier.weight(1f),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = AppIcons.Warning,
-                                            contentDescription = null,
-                                            tint = if (isDark) Color(0xFFFBBF24) else Color(0xFFD97706),
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text(
-                                            text = AppStrings.get(context, "perm_dnd_required_banner", languageMode),
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = if (isDark) Color(0xFFFDE68A) else Color(0xFF92400E)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Button(
-                                        onClick = { openDndPermissionSettings(context) },
-                                        shape = RoundedCornerShape(12.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                    ) {
-                                        Text(AppStrings.get(context, "grant_btn", languageMode), style = OneUiTypography.ButtonText)
-                                    }
-                                }
+            AnimatedContent(
+                targetState = showAboutScreen,
+                label = "about_screen",
+                transitionSpec = {
+                    if (targetState) {
+                        (slideInVertically(animationSpec = tween(350, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeIn(tween(350, easing = FastOutSlowInEasing)))
+                            .togetherWith(fadeOut(tween(250, easing = FastOutSlowInEasing)))
+                    } else {
+                        fadeIn(tween(300, easing = FastOutSlowInEasing))
+                            .togetherWith(slideOutVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeOut(tween(250, easing = FastOutSlowInEasing)))
+                    }
+                }
+            ) { showAbout ->
+                if (showAbout) {
+                    AboutScreen(
+                        languageMode = languageMode,
+                        onBack = { showAboutScreen = false },
+                        onEasterEggTriggered = {
+                            showAboutScreen = false
+                            showEasterEggTerminal = true
+                        }
+                    )
+                } else {
+                    AnimatedContent(
+                        targetState = showSettingsScreen,
+                        label = "settings_screen",
+                        transitionSpec = {
+                            if (targetState) {
+                                (slideInVertically(animationSpec = tween(350, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeIn(tween(350, easing = FastOutSlowInEasing)))
+                                    .togetherWith(fadeOut(tween(250, easing = FastOutSlowInEasing)))
+                            } else {
+                                fadeIn(tween(300, easing = FastOutSlowInEasing))
+                                    .togetherWith(slideOutVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeOut(tween(250, easing = FastOutSlowInEasing)))
                             }
                         }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            PureMinimalistHeroCenterpiece(
-                                isRunning = isServiceRunning,
-                                isFlippedDown = isFlippedDown,
-                                isDndActive = isDndActive,
+                    ) { isSettingsOpen ->
+                        if (isSettingsOpen) {
+                            SettingsScreen(
                                 languageMode = languageMode,
-                                onToggle = {
-                                    if (!isServiceRunning) {
-                                        if (!hasDndPermission) {
-                                            showPermissionDialog = true
-                                        } else {
-                                            prefs.edit().putBoolean(PrefsKeys.KEY_SERVICE_USER_ENABLED, true).apply()
-                                            startFlipService(context)
+                                onLanguageModeChanged = onLanguageModeChanged,
+                                onThemeModeChanged = onThemeModeChanged,
+                                onShowAbout = { showAboutScreen = true },
+                                onDismiss = { showSettingsScreen = false }
+                            )
+                        } else {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Scaffold(
+                            containerColor = MaterialTheme.colorScheme.background
+                        ) { paddingValues ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(paddingValues)
+                                    .padding(horizontal = 20.dp)
+                                    .consumeWindowInsets(WindowInsets.navigationBars),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                // 1. One UI Large Title Header
+                                OneUiHeader(
+                                    languageMode = languageMode,
+                                    onOpenSettings = { showSettingsScreen = true }
+                                )
+
+                                // 2. Missing DND permission warning banner (only when DND not granted)
+                                if (!hasDndPermission) {
+                                    // Follow the ACTIVE app theme (which may override the system setting).
+                                    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { openDndPermissionSettings(context) },
+                                        shape = RoundedCornerShape(20.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isDark) Color(0xFF78350F).copy(alpha = 0.5f) else Color(0xFFFFFBEB)
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.weight(1f),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = AppIcons.Warning,
+                                                    contentDescription = null,
+                                                    tint = if (isDark) Color(0xFFFBBF24) else Color(0xFFD97706),
+                                                    modifier = Modifier.size(22.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Text(
+                                                    text = AppStrings.get(context, "perm_dnd_required_banner", languageMode),
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = if (isDark) Color(0xFFFDE68A) else Color(0xFF92400E)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Button(
+                                                onClick = { openDndPermissionSettings(context) },
+                                                shape = RoundedCornerShape(12.dp),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Text(AppStrings.get(context, "grant_btn", languageMode), style = OneUiTypography.ButtonText)
+                                            }
                                         }
-                                    } else {
-                                        prefs.edit().putBoolean(PrefsKeys.KEY_SERVICE_USER_ENABLED, false).apply()
-                                        stopFlipService(context)
                                     }
                                 }
-                            )
-                        }
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    PureMinimalistHeroCenterpiece(
+                                        isRunning = isServiceRunning,
+                                        isFlippedDown = isFlippedDown,
+                                        isDndActive = isDndActive,
+                                        languageMode = languageMode,
+                                        onToggle = {
+                                            if (!isServiceRunning) {
+                                                if (!hasDndPermission) {
+                                                    showPermissionDialog = true
+                                                } else {
+                                                    prefs.edit().putBoolean(PrefsKeys.KEY_SERVICE_USER_ENABLED, true).apply()
+                                                    startFlipService(context)
+                                                }
+                                            } else {
+                                                prefs.edit().putBoolean(PrefsKeys.KEY_SERVICE_USER_ENABLED, false).apply()
+                                                stopFlipService(context)
+                                            }
+                                        }
+                                    )
+                                }
 
                         Spacer(modifier = Modifier.height(16.dp))
                     }
-                }
+                        }
 
+                        }
                     }
                 }
+                }
             }
+        }
     }
 }
 
-}
 @Composable
 fun OneUiHeader(
     languageMode: Int,
@@ -1175,9 +1240,6 @@ fun PureMinimalistHeroCenterpiece(
     }
 }
 
-// Helpers
-// ════════════════════════════════════════════════════════════════════════
-
 private fun checkDndPermission(context: Context): Boolean {
     val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     return nm.isNotificationPolicyAccessGranted
@@ -1223,7 +1285,7 @@ private fun openAccessibilitySettings(context: Context) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Option Picker Sheets. Single selections open in sheets, configuration lives on the page
+// Option Picker Sheets — single selections live in sheets, configuration lives on the page
 // ════════════════════════════════════════════════════════════════════════
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1305,7 +1367,7 @@ fun <T> OptionPickerSheet(
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Settings. A Material 3 destination page. The page manages configuration;
+// Settings — Material 3 destination page. The page manages configuration;
 // bottom sheets handle single selections (language / theme pickers below).
 // ════════════════════════════════════════════════════════════════════════
 
@@ -1357,10 +1419,6 @@ fun SettingsScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
-        // Full immersion: the Scaffold keeps no system-bar insets, so the page
-        // background extends behind the navigation bar. The scroll content leaves
-        // its own navigationBarsPadding at the end instead.
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text(AppStrings.get(context, "settings_title", languageMode)) },
@@ -1378,9 +1436,10 @@ fun SettingsScreen(
     ) { paddingValues ->
         Column(
             modifier = Modifier
-                .padding(top = paddingValues.calculateTopPadding())
+                .padding(paddingValues)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .padding(bottom = 24.dp)
         ) {
             SettingsSectionLabel(AppStrings.get(context, "group_permissions", languageMode))
             SettingsGroup {
@@ -1529,9 +1588,6 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .padding(top = 18.dp)
             )
-
-            Spacer(Modifier.navigationBarsPadding())
-            Spacer(Modifier.height(12.dp))
         }
     }
 
@@ -1667,18 +1723,21 @@ private fun SettingsGrantButton(label: String, onClick: () -> Unit) {
         )
     }
 }
-
-
 // ════════════════════════════════════════════════════════════════════════
-// About page
+// About — One UI style full-screen page
 // ════════════════════════════════════════════════════════════════════════
 
 @Composable
 fun AboutScreen(
     languageMode: Int,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onEasterEggTriggered: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+    var clickCount by remember { mutableIntStateOf(0) }
+    var lastClickTime by remember { mutableLongStateOf(0L) }
 
     BackHandler { onBack() }
 
@@ -1691,7 +1750,7 @@ fun AboutScreen(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
     ) {
-        // 1. Top bar with back navigation and title
+        // 1. Top bar — clean natural back navigation + title
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1834,10 +1893,45 @@ fun AboutScreen(
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
-                // Row 3: Version
+                // Row 3: Version (Click 7 times to trigger Easter Egg Terminal with Scheme 2 Inline TTY expansion)
+                LaunchedEffect(clickCount, lastClickTime) {
+                    if (clickCount in 1..6) {
+                        delay(2500)
+                        if (System.currentTimeMillis() - lastClickTime >= 2400L) {
+                            clickCount = 0
+                        }
+                    }
+                }
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            val now = System.currentTimeMillis()
+                            if (now - lastClickTime > 2200L) {
+                                clickCount = 1
+                            } else {
+                                clickCount++
+                            }
+                            lastClickTime = now
+
+                            if (clickCount >= 7) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                coroutineScope.launch {
+                                    delay(260)
+                                    clickCount = 0
+                                    onEasterEggTriggered()
+                                }
+                            } else if (clickCount >= 4) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            } else {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        }
                         .padding(vertical = 4.dp)
                 ) {
                     Row(
@@ -1863,6 +1957,51 @@ fun AboutScreen(
                                 style = OneUiTypography.ItemSubtitle,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                    }
+
+                    // Journal-style unlock: each tap advances a systemd user session
+                    // (Starting -> Child belongs -> Started), and the seventh tap shows
+                    // the arriving shell prompt right before the full terminal opens.
+                    AnimatedVisibility(
+                        visible = clickCount >= 4,
+                        enter = expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) + fadeIn(),
+                        exit = shrinkVertically(animationSpec = tween(300)) + fadeOut()
+                    ) {
+                        val statusText = when (clickCount) {
+                            4 -> "systemd[1055]: Starting coralsea-session.service..."
+                            5 -> "systemd[1055]: coralsea-session.service: Child 2107 belongs to coralsea-session.service."
+                            6 -> "systemd[1055]: Started coralsea-session.service."
+                            else -> "cicada@ubuntu:~$"
+                        }
+                        val statusColor = if (clickCount >= 7) Color(0xFF8AE234) else Color(0xFF729FCF)
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF300A24)) // Ubuntu Aubergine
+                                .padding(horizontal = 12.dp, vertical = 9.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = statusText,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = statusColor
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "█",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.85f)
+                                )
+                            }
                         }
                     }
                 }
