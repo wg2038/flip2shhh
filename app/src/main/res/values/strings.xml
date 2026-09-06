@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Flip to Shhh</string>
+    <string name="accessibility_service_desc">Flip to Shhh auto-lock screen service (used exclusively to lock screen when phone is face down, retaining Fingerprint and Face Unlock support).</string>
+</resources>

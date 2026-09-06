@@ -1,0 +1,40 @@
+# Built application files
+*.apk
+*.ap_
+*.aab
+/release/
+
+
+# Files for the ART/DALVIK preview
+*.dex
+
+# External native build output
+.externalNativeBuild
+.cxx/
+
+# IDE & Build tool outputs
+*.iml
+.gradle/
+/local.properties
+local.properties
+/.idea/
+.idea/
+.kotlin/
+.DS_Store
+/build/
+app/build/
+/captures
+
+# Logs & temp files
+*.log
+*.tmp
+
+# Editor & IDE directories
+.vscode/
+*.swp
+*~
+
+# Release signing credentials
+keystore.properties
+*.jks
+*.keystore

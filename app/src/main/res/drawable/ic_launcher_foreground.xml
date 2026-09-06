@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!--
+      X (Twitter) Aesthetic Style — Scaled-down refined white geometry on pure matte black.
+    -->
+    <!-- Outer White Ring (Scaled down by 1 size: radius 22dp) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5.5"
+        android:pathData="M54,32 A22,22 0 1,1 53.9,32 Z" />
+
+    <!-- Center White Horizontal Bar (Scaled down: 24dp x 7.5dp) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,50.25 L66,50.25 L66,57.75 L42,57.75 Z" />
+
+</vector>

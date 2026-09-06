@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Flip to Shhh</string>
+    <string name="accessibility_service_desc">翻转静音自动锁屏服务（仅用于手机面朝下时自动熄屏锁屏，保留指纹与面部解锁支持）</string>
+</resources>

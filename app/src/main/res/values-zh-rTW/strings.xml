@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Flip to Shhh</string>
+    <string name="accessibility_service_desc">翻轉靜音自動鎖定螢幕服務（僅用於手機螢幕朝下時自動關閉螢幕並鎖定，保留指紋與臉部解鎖支援）</string>
+</resources>
