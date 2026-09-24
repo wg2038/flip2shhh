@@ -26,6 +26,12 @@ class BootReceiver : BroadcastReceiver() {
             val isUserEnabled = prefs.getBoolean(PrefsKeys.KEY_SERVICE_USER_ENABLED, true)
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+            val onboardingComplete = prefs.getBoolean(PrefsKeys.KEY_ONBOARDING_COMPLETE, false)
+            if (!onboardingComplete) {
+                Log.i(TAG, "Onboarding not complete; skipping auto-start on boot.")
+                return
+            }
+
             if (!autoStartEnabled) {
                 Log.i(TAG, "Auto-start on boot is disabled by user setting.")
                 return

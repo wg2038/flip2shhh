@@ -39,6 +39,7 @@ class FlipLockAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "FlipLockAccessibility"
+        @Volatile
         var instance: FlipLockAccessibilityService? = null
 
         fun performLock(): Boolean {
@@ -49,6 +50,13 @@ class FlipLockAccessibilityService : AccessibilityService() {
         }
 
         fun isAccessibilityServiceEnabled(context: Context): Boolean {
+            val masterEnabled = Settings.Secure.getInt(
+                context.contentResolver,
+                Settings.Secure.ACCESSIBILITY_ENABLED,
+                0
+            ) == 1
+            if (!masterEnabled) return false
+
             val expectedComponent = ComponentName(context, FlipLockAccessibilityService::class.java)
             val enabledServices = Settings.Secure.getString(
                 context.contentResolver,
