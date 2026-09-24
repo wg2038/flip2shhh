@@ -46,12 +46,12 @@ A standalone Material 3 page: permission states are visible at a glance (granted
 
 ## Two branches
 
-One foundation, two branches:
+One foundation, two distinct editions:
 
-- **main** (v1.x): everything described on this page.
-- **easter-egg** (v2.1.5): the same foundation plus a terminal player easter egg, seven taps on the version number from the About page. It ships an embedded song and lyrics behind a Linux-terminal-style interface. The code explains where it comes from better than this page could.
+- **Standard Edition (`main`, v1.x)**: Recommended for daily use. Clean, rock-solid, battery-optimized, and continuously maintained with hardware compatibility fixes (including Samsung optical proximity support and debounce resilience).
+- **Memorial Edition (`easter-egg`, v2.1.5)**: A frozen-in-time special edition preserved intact for commemorative value. Built on the original foundation, it features a retro terminal music player easter egg triggered by seven taps on the version number from the About page.
 
-Both branches share one signature and the same package name, so installing one over the other requires an uninstall first.
+Both editions share one signature and the same package name, so installing one over the other requires an uninstall first.
 
 ## Download
 
