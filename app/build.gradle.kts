@@ -22,8 +22,8 @@ android {
         applicationId = "shhh.cicada.flip"
         minSdk = 33
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.1.5"
+        versionCode = 3
+        versionName = "2.1.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
