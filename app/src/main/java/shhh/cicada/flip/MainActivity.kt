@@ -2,12 +2,12 @@ package shhh.cicada.flip
 
 import android.app.Activity
 import android.app.NotificationManager
-import android.app.WallpaperManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
@@ -74,7 +74,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -82,7 +81,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 
 // ════════════════════════════════════════════════════════════════════════
@@ -279,109 +277,47 @@ class MainActivity : ComponentActivity() {
 // Theme
 // ════════════════════════════════════════════════════════════════════════
 
-private fun extractSystemSeedColor(context: Context): Color? {
-    // 1. Try reading system theme customization overlay settings (Samsung One UI, AOSP, Pixel)
-    try {
-        val themeJson = Settings.Secure.getString(
-            context.contentResolver,
-            "theme_customization_overlay_packages"
-        )
-        if (!themeJson.isNullOrEmpty()) {
-            val json = JSONObject(themeJson)
-            val hexColor = when {
-                json.has("android.theme.customization.accent_color") ->
-                    json.optString("android.theme.customization.accent_color")
-                json.has("android.theme.customization.system_palette") ->
-                    json.optString("android.theme.customization.system_palette")
-                else -> null
-            }
-            if (!hexColor.isNullOrEmpty()) {
-                val cleanHex = hexColor.trim().removePrefix("#")
-                val parsedLong = cleanHex.toLongOrNull(16)
-                if (parsedLong != null) {
-                    val argb = if (cleanHex.length <= 6) (0xFF000000 or parsedLong).toInt() else parsedLong.toInt()
-                    return Color(argb)
-                }
-            }
-        }
-    } catch (_: Exception) {}
+private val DefaultDarkColorScheme = darkColorScheme(
+    primary = Color(0xFF7BD0FF),
+    onPrimary = Color(0xFF003549),
+    primaryContainer = Color(0xFF004C69),
+    onPrimaryContainer = Color(0xFFC3E7FF),
+    secondary = Color(0xFFB5C9D7),
+    onSecondary = Color(0xFF20333D),
+    secondaryContainer = Color(0xFF374955),
+    onSecondaryContainer = Color(0xFFD1E5F3),
+    background = Color(0xFF101417),
+    onBackground = Color(0xFFE0E3E8),
+    surface = Color(0xFF101417),
+    onSurface = Color(0xFFE0E3E8),
+    surfaceContainer = Color(0xFF1D2024),
+    surfaceContainerHigh = Color(0xFF272A2E),
+    surfaceContainerHighest = Color(0xFF32353A),
+    onSurfaceVariant = Color(0xFFC0C7CD),
+    outline = Color(0xFF8A9297),
+    outlineVariant = Color(0xFF40484C)
+)
 
-    // 2. Try WallpaperManager getWallpaperColors (Android 8.1+)
-    try {
-        val wm = WallpaperManager.getInstance(context)
-        val colors = wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
-        if (colors != null) {
-            val primary = colors.primaryColor.toArgb()
-            return Color(primary)
-        }
-    } catch (_: Exception) {}
-
-    return null
-}
-
-private fun dynamicColorSchemeFromSeed(seedColor: Color, isDark: Boolean): ColorScheme {
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(seedColor.toArgb(), hsl)
-    val h = hsl[0]
-    val s = hsl[1].coerceIn(0.30f, 0.90f)
-
-    fun color(hue: Float, sat: Float, light: Float): Color {
-        val intColor = ColorUtils.HSLToColor(
-            floatArrayOf(
-                (hue % 360f + 360f) % 360f,
-                sat.coerceIn(0f, 1f),
-                light.coerceIn(0f, 1f)
-            )
-        )
-        return Color(intColor)
-    }
-
-    return if (isDark) {
-        darkColorScheme(
-            primary = color(h, s, 0.78f),
-            onPrimary = color(h, s * 0.7f, 0.15f),
-            primaryContainer = color(h, s * 0.80f, 0.32f),
-            onPrimaryContainer = color(h, s * 0.5f, 0.92f),
-            secondary = color(h, s * 0.35f, 0.72f),
-            onSecondary = color(h, s * 0.35f, 0.18f),
-            secondaryContainer = color(h, s * 0.30f, 0.25f),
-            onSecondaryContainer = color(h, s * 0.30f, 0.90f),
-            background = Color(0xFF111318),
-            onBackground = Color(0xFFE2E2E9),
-            surface = Color(0xFF191C22),
-            surfaceContainer = color(h, s * 0.30f, 0.13f),
-            onSurface = Color(0xFFE2E2E9),
-            surfaceContainerLow = Color(0xFF1D2026),
-            surfaceContainerHigh = Color(0xFF282B32),
-            surfaceContainerHighest = Color(0xFF33363E),
-            onSurfaceVariant = Color(0xFFC3C6CF),
-            outline = Color(0xFF8D9199),
-            outlineVariant = Color(0xFF43474E)
-        )
-    } else {
-        lightColorScheme(
-            primary = color(h, s * 0.95f, 0.38f),
-            onPrimary = Color.White,
-            primaryContainer = color(h, s * 0.65f, 0.88f),
-            onPrimaryContainer = color(h, s * 0.9f, 0.12f),
-            secondary = color(h, s * 0.30f, 0.42f),
-            onSecondary = Color.White,
-            secondaryContainer = color(h, s * 0.35f, 0.90f),
-            onSecondaryContainer = color(h, s * 0.50f, 0.15f),
-            background = Color(0xFFFAFAFA),
-            onBackground = Color(0xFF0F172A),
-            surface = Color(0xFFFFFFFF),
-            surfaceContainer = color(h, s * 0.25f, 0.95f),
-            onSurface = Color(0xFF0F172A),
-            surfaceContainerLow = Color(0xFFFFFFFF),
-            surfaceContainerHigh = Color(0xFFF1F5F9),
-            surfaceContainerHighest = Color(0xFFE2E8F0),
-            onSurfaceVariant = Color(0xFF475569),
-            outline = Color(0xFFE2E8F0),
-            outlineVariant = Color(0xFFE2E8F0)
-        )
-    }
-}
+private val DefaultLightColorScheme = lightColorScheme(
+    primary = Color(0xFF00668B),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFC3E7FF),
+    onPrimaryContainer = Color(0xFF001E2C),
+    secondary = Color(0xFF4E616D),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFD1E5F3),
+    onSecondaryContainer = Color(0xFF0B1D28),
+    background = Color(0xFFF6FAFE),
+    onBackground = Color(0xFF181C20),
+    surface = Color(0xFFF6FAFE),
+    onSurface = Color(0xFF181C20),
+    surfaceContainer = Color(0xFFECEFF3),
+    surfaceContainerHigh = Color(0xFFE6E9ED),
+    surfaceContainerHighest = Color(0xFFE0E3E7),
+    onSurfaceVariant = Color(0xFF40484C),
+    outline = Color(0xFF71787D),
+    outlineVariant = Color(0xFFC0C7CD)
+)
 
 @Composable
 fun SystemBarsColorEffect(darkTheme: Boolean) {
@@ -426,26 +362,15 @@ fun FlipToShhhTheme(
         else -> isSystemInDarkTheme()
     }
 
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var systemSeedColor by remember { mutableStateOf(extractSystemSeedColor(context)) }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                systemSeedColor = extractSystemSeedColor(context)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    val colorScheme = remember(darkTheme, systemSeedColor, context) {
-        val seed = systemSeedColor
-        if (seed != null) {
-            dynamicColorSchemeFromSeed(seed, darkTheme)
-        } else {
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
+    // Android 12+ (minSdk 33+) native Material You dynamic colors.
+    // Samsung One UI automatically maps its color palette or default system blue
+    // to system accent/neutral resources, which dynamicColorScheme reads directly.
+    val dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val colorScheme = when {
+        dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
+        dynamicColor && !darkTheme -> dynamicLightColorScheme(context)
+        darkTheme -> DefaultDarkColorScheme
+        else -> DefaultLightColorScheme
     }
 
     SystemBarsColorEffect(darkTheme = darkTheme)

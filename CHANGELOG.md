@@ -2,6 +2,13 @@
 
 All notable changes to flip2shhh are documented in this file.
 
+## [1.0.2] - 2026-10-12
+
+- **Samsung & One UI Dynamic Color Fix**: Replaced custom HSL palette generation and raw wallpaper pixel extraction with native Material 3 `dynamicDarkColorScheme` / `dynamicLightColorScheme`. On Samsung devices, the UI now flawlessly adopts the system One UI color palette or standard system blue without muddy colors or broken contrast.
+- **Robust Proximity & Flip Detection**: Fixed a critical issue on Samsung and devices with restricted proximity sensors where a non-reporting proximity sensor would permanently block flip-to-DND detection. Stillness verification now safely leverages the high-precision 50Hz gyroscope and accelerometer hand-tremor filter.
+- **Android 14+ FGS Compliance**: Explicitly specified `ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE` when starting foreground service on API 34+.
+- **Dynamic Notification Channels**: Implemented locale-aware notification channel lifecycle migration, ensuring channel name and description refresh immediately upon in-app language change.
+
 ## [1.0.1] - 2026-09-24
 
 - **Optical Proximity Correction**: Removed vendor-level Samsung exclusions from optical proximity detection, restoring hardware proximity verification and clean face-up exit detection on Samsung devices.
