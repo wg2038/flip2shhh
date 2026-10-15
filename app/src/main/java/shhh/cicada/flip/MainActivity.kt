@@ -19,6 +19,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -362,15 +363,11 @@ fun FlipToShhhTheme(
         else -> isSystemInDarkTheme()
     }
 
-    // Android 12+ (minSdk 33+) native Material You dynamic colors.
-    // Samsung One UI automatically maps its color palette or default system blue
-    // to system accent/neutral resources, which dynamicColorScheme reads directly.
-    val dynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val colorScheme = when {
-        dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
-        dynamicColor && !darkTheme -> dynamicLightColorScheme(context)
-        darkTheme -> DefaultDarkColorScheme
-        else -> DefaultLightColorScheme
+    // Material You dynamic colors with robust fallback to curated One UI / Material color schemes
+    val colorScheme = runCatching {
+        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+    }.getOrElse {
+        if (darkTheme) DefaultDarkColorScheme else DefaultLightColorScheme
     }
 
     SystemBarsColorEffect(darkTheme = darkTheme)
@@ -651,9 +648,9 @@ fun FlipToShhhScreen(
     val isDndActive by FlipToShhhService.isDndActive.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
-    var hasDndPermission by remember { mutableStateOf(true) }
-    var isIgnoringBatteryOptimization by remember { mutableStateOf(true) }
-    var hasAccessibilityPermission by remember { mutableStateOf(true) }
+    var hasDndPermission by remember { mutableStateOf(checkDndPermission(context)) }
+    var isIgnoringBatteryOptimization by remember { mutableStateOf(checkBatteryOptimization(context)) }
+    var hasAccessibilityPermission by remember { mutableStateOf(FlipLockAccessibilityService.isAccessibilityServiceEnabled(context)) }
     var showPermissionDialog by remember { mutableStateOf(false) }
     var showSettingsScreen by rememberSaveable { mutableStateOf(false) }
     var showAboutScreen by rememberSaveable { mutableStateOf(false) }
@@ -678,6 +675,13 @@ fun FlipToShhhScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 coroutineScope.launch {
                     updatePermissions()
+                    val dndGranted = checkDndPermission(context)
+                    val isUserEnabled = prefs.getBoolean(PrefsKeys.KEY_SERVICE_USER_ENABLED, true)
+                    if (isUserEnabled && dndGranted && !FlipToShhhService.isRunning.value) {
+                        startFlipService(context)
+                    } else if (!dndGranted && FlipToShhhService.isRunning.value) {
+                        stopFlipService(context)
+                    }
                     onLanguageModeChanged(prefs.getInt(PrefsKeys.KEY_LANGUAGE_MODE, 0))
                 }
             }
@@ -704,25 +708,6 @@ fun FlipToShhhScreen(
     }
 
     AnimatedContent(
-        targetState = showAboutScreen,
-        label = "about_screen",
-        transitionSpec = {
-            if (targetState) {
-                (slideInVertically(animationSpec = tween(350, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeIn(tween(350, easing = FastOutSlowInEasing)))
-                    .togetherWith(fadeOut(tween(250, easing = FastOutSlowInEasing)))
-            } else {
-                fadeIn(tween(300, easing = FastOutSlowInEasing))
-                    .togetherWith(slideOutVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeOut(tween(250, easing = FastOutSlowInEasing)))
-            }
-        }
-    ) { showAbout ->
-        if (showAbout) {
-            AboutScreen(
-                languageMode = languageMode,
-                onBack = { showAboutScreen = false }
-            )
-        } else {
-    AnimatedContent(
         targetState = showSettingsScreen,
         label = "settings_screen",
         transitionSpec = {
@@ -736,13 +721,28 @@ fun FlipToShhhScreen(
         }
     ) { isSettingsOpen ->
         if (isSettingsOpen) {
-            SettingsScreen(
-                languageMode = languageMode,
-                onLanguageModeChanged = onLanguageModeChanged,
-                onThemeModeChanged = onThemeModeChanged,
-                onShowAbout = { showAboutScreen = true },
-                onDismiss = { showSettingsScreen = false }
-            )
+            Box(modifier = Modifier.fillMaxSize()) {
+                SettingsScreen(
+                    languageMode = languageMode,
+                    onLanguageModeChanged = onLanguageModeChanged,
+                    onThemeModeChanged = onThemeModeChanged,
+                    onShowAbout = { showAboutScreen = true },
+                    onDismiss = {
+                        showAboutScreen = false
+                        showSettingsScreen = false
+                    }
+                )
+                AnimatedVisibility(
+                    visible = showAboutScreen,
+                    enter = slideInVertically(animationSpec = tween(350, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeIn(tween(350, easing = FastOutSlowInEasing)),
+                    exit = slideOutVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) { fullHeight -> fullHeight } + fadeOut(tween(250, easing = FastOutSlowInEasing))
+                ) {
+                    AboutScreen(
+                        languageMode = languageMode,
+                        onBack = { showAboutScreen = false }
+                    )
+                }
+            }
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 Scaffold(
@@ -819,13 +819,14 @@ fun FlipToShhhScreen(
                                 .fillMaxWidth(),
                             contentAlignment = Alignment.Center
                         ) {
+                            val isEffectiveRunning = isServiceRunning && hasDndPermission
                             PureMinimalistHeroCenterpiece(
-                                isRunning = isServiceRunning,
+                                isRunning = isEffectiveRunning,
                                 isFlippedDown = isFlippedDown,
                                 isDndActive = isDndActive,
                                 languageMode = languageMode,
                                 onToggle = {
-                                    if (!isServiceRunning) {
+                                    if (!isEffectiveRunning) {
                                         if (!hasDndPermission) {
                                             showPermissionDialog = true
                                         } else {
@@ -843,13 +844,9 @@ fun FlipToShhhScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
-
-                    }
-                }
             }
+        }
     }
-}
-
 }
 @Composable
 fun OneUiHeader(
@@ -1249,29 +1246,32 @@ fun SettingsScreen(
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
 
-    var hasDndPermission by remember { mutableStateOf(false) }
-    var isIgnoringBatteryOptimization by remember { mutableStateOf(false) }
-    var hasAccessibilityPermission by remember { mutableStateOf(false) }
+    var hasDndPermission by remember { mutableStateOf(checkDndPermission(context)) }
+    var isIgnoringBatteryOptimization by remember { mutableStateOf(checkBatteryOptimization(context)) }
+    var hasAccessibilityPermission by remember { mutableStateOf(FlipLockAccessibilityService.isAccessibilityServiceEnabled(context)) }
     var autoStartEnabled by remember { mutableStateOf(prefs.getBoolean(PrefsKeys.KEY_AUTO_START_BOOT, true)) }
     var autoLockEnabled by remember { mutableStateOf(prefs.getBoolean(PrefsKeys.KEY_AUTO_LOCK_SCREEN, true)) }
     var themeMode by remember { mutableStateOf(prefs.getInt(PrefsKeys.KEY_THEME_MODE, 0)) }
     var showLanguagePicker by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
 
-    val refreshPermissions: () -> Unit = remember(context) {
+    val refreshPermissions: suspend () -> Unit = remember(context) {
         {
-            hasDndPermission = checkDndPermission(context)
-            isIgnoringBatteryOptimization = checkBatteryOptimization(context)
-            hasAccessibilityPermission = FlipLockAccessibilityService.isAccessibilityServiceEnabled(context)
+            val dnd = withContext(Dispatchers.IO) { checkDndPermission(context) }
+            val batt = withContext(Dispatchers.IO) { checkBatteryOptimization(context) }
+            val access = withContext(Dispatchers.IO) { FlipLockAccessibilityService.isAccessibilityServiceEnabled(context) }
+            hasDndPermission = dnd
+            isIgnoringBatteryOptimization = batt
+            hasAccessibilityPermission = access
         }
     }
     LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) { refreshPermissions() }
+        refreshPermissions()
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                coroutineScope.launch { withContext(Dispatchers.IO) { refreshPermissions() } }
+                coroutineScope.launch { refreshPermissions() }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)

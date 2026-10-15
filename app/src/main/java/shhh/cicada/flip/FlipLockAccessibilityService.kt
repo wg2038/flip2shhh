@@ -26,13 +26,17 @@ class FlipLockAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        instance = null
+        if (instance === this) {
+            instance = null
+        }
         Log.i(TAG, "FlipLockAccessibilityService unbound.")
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        instance = null
+        if (instance === this) {
+            instance = null
+        }
         Log.i(TAG, "FlipLockAccessibilityService destroyed.")
         super.onDestroy()
     }
@@ -41,6 +45,7 @@ class FlipLockAccessibilityService : AccessibilityService() {
         private const val TAG = "FlipLockAccessibility"
         @Volatile
         var instance: FlipLockAccessibilityService? = null
+            private set
 
         fun performLock(): Boolean {
             val service = instance ?: return false

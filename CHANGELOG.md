@@ -2,6 +2,19 @@
 
 All notable changes to flip2shhh are documented in this file.
 
+## [1.0.3] - 2026-10-15
+
+- **Continuous Stillness Verification**: Removed proximity bypass on motion stillness check, ensuring any physical movement or vibration during the 2.0s countdown resets the timer even when the proximity sensor is occluded.
+- **Surface Proximity Fusion & Debounce Cancellation Fix**: Integrated optical proximity check into flat-down entry detection and ensured exit debounce timers are not inadvertently cancelled while the device is in motion off the table.
+- **Initial Sensor Sample Warmup**: Prevented false ~9.8 m/s² acceleration spikes and premature DND exits upon service restart by deferring state evaluation until valid initial orientation samples are recorded.
+- **Partial WakeLock During Debounce**: Held a targeted, timed `PARTIAL_WAKE_LOCK` strictly during debounce countdowns to prevent CPU deep sleep from freezing sensor event delivery and timer execution.
+- **API 33+ Hardware Feedback Haptic & Lock Separation**: Upgraded vibrations to `VibrationAttributes.USAGE_HARDWARE_FEEDBACK` to prevent DND from muting haptics, and introduced a 150ms delay for auto-lock with `powerManager.isInteractive` guard to prevent haptic truncation and redundant lock events.
+- **DND State & Lifecycle Synchronization**: Added a broadcast receiver for `ACTION_INTERRUPTION_FILTER_CHANGED`, auto-stopped service if DND permissions are revoked, and updated hero centerpiece states and auto-start logic on Activity resume.
+- **Static Notification Channel & System Locale Refresh**: Consolidated notification channels into a single stable ID with in-place name/description updates and added `onConfigurationChanged` callback to instantly refresh notifications on system language changes.
+- **Settings & About Page Navigation Integrity**: Reorganized `SettingsScreen` and `AboutScreen` hierarchy with `AnimatedVisibility` overlay, preserving settings scroll position and state upon returning from the About screen.
+- **Compose State Thread Safety & Zero-Flash Initialization**: Synchronously initialized permission states and ensured all mutable state updates occur on the main UI thread.
+- **Accessibility Service Lifecycle Protection**: Enforced `private set` and identity check on `FlipLockAccessibilityService.instance` teardown to eliminate unbind/destroy race conditions.
+
 ## [1.0.2] - 2026-10-12
 
 - **Samsung & One UI Dynamic Color Fix**: Replaced custom HSL palette generation and raw wallpaper pixel extraction with native Material 3 `dynamicDarkColorScheme` / `dynamicLightColorScheme`. On Samsung devices, the UI now flawlessly adopts the system One UI color palette or standard system blue without muddy colors or broken contrast.
