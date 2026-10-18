@@ -14,4 +14,5 @@ object PrefsKeys {
     const val KEY_SERVICE_USER_ENABLED = "service_user_enabled"
     const val KEY_THEME_MODE = "theme_mode"
     const val KEY_LANGUAGE_MODE = "language_mode"
+    const val KEY_NOTIFICATION_PERMISSION_ASKED = "notification_permission_asked"
 }

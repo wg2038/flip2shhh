@@ -5,7 +5,6 @@ import android.app.ActivityManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -61,6 +60,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -87,6 +87,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -235,7 +238,6 @@ object AppStrings {
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
@@ -246,8 +248,8 @@ class MainActivity : ComponentActivity() {
             val prefs = remember {
                 context.getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
             }
-            var themeMode by rememberSaveable { mutableStateOf(prefs.getInt(PrefsKeys.KEY_THEME_MODE, 0)) }
-            var languageMode by rememberSaveable { mutableStateOf(prefs.getInt(PrefsKeys.KEY_LANGUAGE_MODE, 0)) }
+            var themeMode by rememberSaveable { mutableIntStateOf(prefs.getInt(PrefsKeys.KEY_THEME_MODE, 0)) }
+            var languageMode by rememberSaveable { mutableIntStateOf(prefs.getInt(PrefsKeys.KEY_LANGUAGE_MODE, 0)) }
             val notifPermissionLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()
             ) { }
@@ -284,10 +286,14 @@ class MainActivity : ComponentActivity() {
                         LaunchedEffect(Unit) {
                             // POST_NOTIFICATIONS is a runtime permission on API 33+ (this app's minSdk);
                             // without it the foreground service status notification is suppressed.
-                            if (ContextCompat.checkSelfPermission(
+                            // Ask once: repeatedly launching the request on every app start is
+                            // noisy, and after a denial the system may not show a dialog anyway.
+                            val alreadyAsked = prefs.getBoolean(PrefsKeys.KEY_NOTIFICATION_PERMISSION_ASKED, false)
+                            if (!alreadyAsked && ContextCompat.checkSelfPermission(
                                     context, android.Manifest.permission.POST_NOTIFICATIONS
                                 ) != PackageManager.PERMISSION_GRANTED
                             ) {
+                                prefs.edit().putBoolean(PrefsKeys.KEY_NOTIFICATION_PERMISSION_ASKED, true).apply()
                                 notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                             }
                             val isUserEnabled = prefs.getBoolean(PrefsKeys.KEY_SERVICE_USER_ENABLED, true)
@@ -515,34 +521,38 @@ fun OnboardingScreen(
 @Composable
 fun OnboardingWelcomePage(languageMode: Int) {
     val context = LocalContext.current
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(
-            imageVector = AppIcons.DoNotDisturbOn,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(80.dp)
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(
-            text = AppStrings.get(context, "onboarding_welcome_title", languageMode),
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = AppStrings.get(context, "onboarding_welcome_desc", languageMode),
-            fontSize = 15.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            lineHeight = 22.sp
-        )
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = maxHeight)
+                .padding(horizontal = 32.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = AppIcons.DoNotDisturbOn,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(80.dp)
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = AppStrings.get(context, "onboarding_welcome_title", languageMode),
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = AppStrings.get(context, "onboarding_welcome_desc", languageMode),
+                fontSize = 15.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                lineHeight = 22.sp
+            )
+        }
     }
 }
 
@@ -557,58 +567,64 @@ fun OnboardingPermissionsPage(
     onComplete: () -> Unit
 ) {
     val context = LocalContext.current
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = AppStrings.get(context, "onboarding_perm_title", languageMode),
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = AppStrings.get(context, "onboarding_perm_desc", languageMode),
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-        Spacer(modifier = Modifier.height(32.dp))
-
-        OnboardingPermissionItem(
-            title = AppStrings.get(context, "perm_dnd_title", languageMode),
-            desc = AppStrings.get(context, "perm_dnd_desc", languageMode),
-            isGranted = hasDndPermission,
-            languageMode = languageMode,
-            onAction = onGrantDnd
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        OnboardingPermissionItem(
-            title = AppStrings.get(context, "perm_battery_title", languageMode),
-            desc = AppStrings.get(context, "perm_battery_desc", languageMode),
-            isGranted = isIgnoringBatteryOptimization,
-            languageMode = languageMode,
-            onAction = onRequestBatteryOptimization
-        )
-
-        Spacer(modifier = Modifier.height(36.dp))
-
-        Button(
-            onClick = onComplete,
-            enabled = allGranted,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            contentPadding = PaddingValues(vertical = 14.dp)
+    // The permission cards and the only completion button must remain reachable on
+    // small screens and at large font scales, so the page scrolls instead of clipping.
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = maxHeight)
+                .padding(horizontal = 32.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = if (allGranted) AppStrings.get(context, "onboarding_start_btn", languageMode) else AppStrings.get(context, "onboarding_setup_required_btn", languageMode),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
+                text = AppStrings.get(context, "onboarding_perm_title", languageMode),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = AppStrings.get(context, "onboarding_perm_desc", languageMode),
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(32.dp))
+
+            OnboardingPermissionItem(
+                title = AppStrings.get(context, "perm_dnd_title", languageMode),
+                desc = AppStrings.get(context, "perm_dnd_desc", languageMode),
+                isGranted = hasDndPermission,
+                languageMode = languageMode,
+                onAction = onGrantDnd
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            OnboardingPermissionItem(
+                title = AppStrings.get(context, "perm_battery_title", languageMode),
+                desc = AppStrings.get(context, "perm_battery_desc", languageMode),
+                isGranted = isIgnoringBatteryOptimization,
+                languageMode = languageMode,
+                onAction = onRequestBatteryOptimization
+            )
+
+            Spacer(modifier = Modifier.height(36.dp))
+
+            Button(
+                onClick = onComplete,
+                enabled = allGranted,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                contentPadding = PaddingValues(vertical = 14.dp)
+            ) {
+                Text(
+                    text = if (allGranted) AppStrings.get(context, "onboarding_start_btn", languageMode) else AppStrings.get(context, "onboarding_setup_required_btn", languageMode),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
@@ -1133,13 +1149,16 @@ fun PureMinimalistHeroCenterpiece(
                         clip = true
                     }
                     .background(buttonBgColor)
-                    .clickable(
+                    .toggleable(
+                        value = isRunning,
                         interactionSource = interactionSource,
-                        indication = null
+                        indication = null,
+                        role = Role.Switch
                     ) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onToggle()
-                    },
+                    }
+                    .semantics { contentDescription = statusHeadline },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -1312,7 +1331,7 @@ fun SettingsScreen(
     var hasAccessibilityPermission by remember { mutableStateOf(FlipLockAccessibilityService.isAccessibilityServiceEnabled(context)) }
     var autoStartEnabled by remember { mutableStateOf(prefs.getBoolean(PrefsKeys.KEY_AUTO_START_BOOT, true)) }
     var autoLockEnabled by remember { mutableStateOf(prefs.getBoolean(PrefsKeys.KEY_AUTO_LOCK_SCREEN, true)) }
-    var themeMode by remember { mutableStateOf(prefs.getInt(PrefsKeys.KEY_THEME_MODE, 0)) }
+    var themeMode by remember { mutableIntStateOf(prefs.getInt(PrefsKeys.KEY_THEME_MODE, 0)) }
     var showLanguagePicker by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
 
@@ -1432,18 +1451,23 @@ fun SettingsScreen(
                 SettingsItemRow(
                     icon = AppIcons.Lock,
                     title = AppStrings.get(context, "autolock_title", languageMode),
-                    // Effective state: the preference alone does nothing while the
-                    // accessibility lock service is disabled.
+                    // The stored preference is the source of truth so the switch can
+                    // always be turned off, even while the accessibility service is
+                    // disabled. The service additionally checks the permission at
+                    // flip time, so an enabled preference is inert without it.
+                    supporting = if (autoLockEnabled && !hasAccessibilityPermission) {
+                        AppStrings.get(context, "perm_state_missing", languageMode)
+                    } else null,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        val enabled = !(autoLockEnabled && hasAccessibilityPermission)
+                        val enabled = !autoLockEnabled
                         autoLockEnabled = enabled
                         prefs.edit().putBoolean(PrefsKeys.KEY_AUTO_LOCK_SCREEN, enabled).apply()
                         if (enabled && !hasAccessibilityPermission) openAccessibilitySettings(context)
                     }
                 ) {
                     Switch(
-                        checked = autoLockEnabled && hasAccessibilityPermission,
+                        checked = autoLockEnabled,
                         onCheckedChange = { enabled ->
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             autoLockEnabled = enabled

@@ -1,5 +1,6 @@
 package shhh.cicada.flip
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -71,8 +72,16 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
     private var currentGyroRotation: Float = 0f
     private var isProximityNear: Boolean = false
     private var hasOrientationSample: Boolean = false
+    private var hasProximitySample: Boolean = false
+    private var lastProximityEventTime: Long = 0L
 
     private var faceDownStartTime: Long = 0L
+
+    // Generation token used to keep our own wake-lock safety timer from releasing a
+    // newer acquisition. WakeLock.acquire(timeout) posts an uncancellable releaser in
+    // AOSP, so re-arming a timed lock while one is held can release the replacement
+    // early; acquire without a timeout and enforce the timeout here instead.
+    private var wakeLockGeneration: Long = 0L
 
     private var wasDndActivatedByService: Boolean = false
 
@@ -85,19 +94,28 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
     private enum class TargetFlipState { NONE, DOWN, UP }
     private var pendingTargetState: TargetFlipState = TargetFlipState.NONE
 
+    @SuppressLint("WakelockTimeout", "Wakelock")
     private fun acquireWakeLock(timeoutMs: Long = 3000L) {
+        val lock = wakeLock ?: return
         try {
-            wakeLock?.let {
-                if (!it.isHeld) {
-                    it.acquire(timeoutMs)
+            val generation = ++wakeLockGeneration
+            // Re-arm from a clean state so a safety timer from the previous countdown
+            // cannot release this acquisition.
+            if (lock.isHeld) lock.release()
+            lock.acquire()
+            handler.postDelayed({
+                if (generation == wakeLockGeneration) {
+                    releaseWakeLock()
                 }
-            }
+            }, timeoutMs.coerceAtLeast(1L))
         } catch (e: Exception) {
             Log.w(TAG, "Failed to acquire wake lock", e)
+            releaseWakeLock()
         }
     }
 
     private fun releaseWakeLock() {
+        wakeLockGeneration++
         try {
             wakeLock?.let {
                 if (it.isHeld) {
@@ -109,12 +127,23 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         }
     }
 
+    // A proximity sensor only reports on change. If it never reports, or stops
+    // reporting while face down, treating the last "far" value as authoritative
+    // would lock out flip detection permanently (the v1.0.2 regression). A reading
+    // older than PROXIMITY_STALE_MS is ignored; stillness then decides on its own.
+    private fun hasFreshProximityReading(): Boolean =
+        hasProximitySample &&
+                (SystemClock.elapsedRealtime() - lastProximityEventTime <= PROXIMITY_STALE_MS)
+
+    private fun proximityBlocksEntry(): Boolean =
+        hasOpticalProximity && hasFreshProximityReading() && !isProximityNear
+
     private val debounceRunnable: Runnable = Runnable {
         val currentlyFlipped = _isFlippedDown.value
         val hMag = sqrt(currentXValue * currentXValue + currentYValue * currentYValue)
         val isPhysicallyStationary = (currentDeltaG <= MAX_DELTA_G_FINAL_CHECK) && (currentGyroRotation <= MAX_GYRO_FINAL_CHECK)
         val isOrientationFlatDown = (currentZValue <= FACE_DOWN_ENTER_Z_THRESHOLD) && (hMag <= MAX_HORIZONTAL_GRAVITY)
-        val isFlatFaceDownOrientation = isOrientationFlatDown && (!hasOpticalProximity || isProximityNear)
+        val isFlatFaceDownOrientation = isOrientationFlatDown && !proximityBlocksEntry()
 
         if (pendingTargetState == TargetFlipState.DOWN && !currentlyFlipped) {
             val now = SystemClock.elapsedRealtime()
@@ -146,7 +175,7 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
                     stopSelf()
                     return@Runnable
                 }
-                Log.i(TAG, "Debounce confirmed (2000ms elapsed): entering Face Down mode (DND ON), Z=$currentZValue, H=$hMag, proxNear=$isProximityNear, optProx=$hasOpticalProximity")
+                Log.i(TAG, "Debounce confirmed (2000ms elapsed): entering Face Down mode (DND ON), Z=$currentZValue, H=$hMag, proxNear=$isProximityNear, proxSampled=$hasProximitySample, optProx=$hasOpticalProximity")
                 _isFlippedDown.value = true
                 enableDoNotDisturb()
                 setFastSensorRate(false)
@@ -163,7 +192,9 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
             }
         } else if (pendingTargetState == TargetFlipState.UP && currentlyFlipped) {
             val isPoseExited = (currentZValue > FACE_DOWN_EXIT_Z_THRESHOLD) || (hMag > EXIT_HORIZONTAL_GRAVITY)
-            val isExitCondition = isPoseExited || (hasOpticalProximity && !isProximityNear && currentDeltaG > MAX_DELTA_G_TABLE_STILLNESS)
+            val isExitCondition = isPoseExited ||
+                    (hasOpticalProximity && hasFreshProximityReading() &&
+                            !isProximityNear && currentDeltaG > MAX_DELTA_G_TABLE_STILLNESS)
             if (isExitCondition) {
                 Log.i(TAG, "Debounce confirmed -> exiting Face Down mode (DND OFF), Z=$currentZValue, H=$hMag, proxNear=$isProximityNear")
                 _isFlippedDown.value = false
@@ -181,13 +212,16 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
             if (intent?.action == NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED) {
                 val hasPerm = notifManager.isNotificationPolicyAccessGranted
                 if (!hasPerm) {
-                    Log.w(TAG, "Notification policy access revoked externally while running")
-                    if (_isDndActive.value) {
-                        _isDndActive.value = false
-                        _isFlippedDown.value = false
-                        persistState(active = false)
-                        updateNotification(active = false)
-                    }
+                    Log.w(TAG, "Notification policy access revoked externally; stopping service")
+                    _isDndActive.value = false
+                    _isFlippedDown.value = false
+                    wasDndActivatedByService = false
+                    persistState(active = false)
+                    updateNotification(active = false)
+                    // The service cannot do its job without policy access. Stop now
+                    // instead of leaving sensors and the foreground notification alive
+                    // until the activity happens to resume.
+                    stopSelf()
                     return
                 }
                 val currentFilter = notifManager.currentInterruptionFilter
@@ -286,22 +320,22 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         Log.i(TAG, "onStartCommand")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            } else {
-                0
-            }
-            startForeground(NOTIFICATION_ID, buildNotification(active = _isDndActive.value), fgsType)
+        // specialUse was introduced in API 34; passing that bit to startForeground on
+        // API 33 would fail the manifest type check, so keep the runtime guard.
+        val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         } else {
-            startForeground(NOTIFICATION_ID, buildNotification(active = _isDndActive.value))
+            0
         }
+        startForeground(NOTIFICATION_ID, buildNotification(active = _isDndActive.value), fgsType)
 
         // A debounce runnable stranded by a previous session would reference a stale
         // pendingTargetState and permanently block future flip detection.
         pendingTargetState = TargetFlipState.NONE
         releaseWakeLock()
         hasOrientationSample = false
+        hasProximitySample = false
+        lastProximityEventTime = 0L
         handler.removeCallbacks(debounceRunnable)
         usingFastSensorRate = false
         registerSensors()
@@ -320,6 +354,8 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         releaseWakeLock()
         wakeLock = null
         hasOrientationSample = false
+        hasProximitySample = false
+        lastProximityEventTime = 0L
         _isRunning.value = false
         _isFlippedDown.value = false
         _isDndActive.value = false
@@ -395,7 +431,12 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
             Sensor.TYPE_PROXIMITY -> {
                 val distance = event.values[0]
                 val maxRange = proximitySensor?.maximumRange?.takeIf { it > 0f } ?: 5.0f
-                isProximityNear = (distance == 0f || (distance < maxRange && distance <= 4.0f))
+                hasProximitySample = true
+                lastProximityEventTime = SystemClock.elapsedRealtime()
+                // Android reports "far" as maximumRange and "near" as anything below
+                // it. Do not additionally cap near at 4 cm: some sensors report a
+                // larger near value, which used to be misread as far and blocked DND.
+                isProximityNear = distance < maxRange || distance <= 4.0f
                 checkFlipState()
                 return
             }
@@ -474,12 +515,13 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         // 3. Proximity sensor fusion: verifies screen is facing a physical surface (desk/table)
         val isOrientationFlatDown = (currentZValue <= FACE_DOWN_ENTER_Z_THRESHOLD) &&
                 (hMag <= MAX_HORIZONTAL_GRAVITY)
-        val isFlatFaceDownOrientation = isOrientationFlatDown && (!hasOpticalProximity || isProximityNear)
+        val isFlatFaceDownOrientation = isOrientationFlatDown && !proximityBlocksEntry()
 
         // Exit condition: picked up, tilted beyond threshold, or lifted with physical motion
         val isExitCondition = (currentZValue > FACE_DOWN_EXIT_Z_THRESHOLD) ||
                 (hMag > EXIT_HORIZONTAL_GRAVITY) ||
-                (hasOpticalProximity && !isProximityNear && currentDeltaG > MAX_DELTA_G_TABLE_STILLNESS)
+                (hasOpticalProximity && hasFreshProximityReading() &&
+                        !isProximityNear && currentDeltaG > MAX_DELTA_G_TABLE_STILLNESS)
 
         val currentlyFlipped = _isFlippedDown.value
 
@@ -492,7 +534,7 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
                     acquireWakeLock(FIXED_DEBOUNCE_DOWN_MS + 1000L)
                     handler.postDelayed(debounceRunnable, FIXED_DEBOUNCE_DOWN_MS)
                     setFastSensorRate(true)
-                    Log.i(TAG, "Scheduled DOWN debounce timer (${FIXED_DEBOUNCE_DOWN_MS}ms from T0), Z=$currentZValue, H=$hMag, proxNear=$isProximityNear")
+                    Log.i(TAG, "Scheduled DOWN debounce timer (${FIXED_DEBOUNCE_DOWN_MS}ms from T0), Z=$currentZValue, H=$hMag, proxNear=$isProximityNear, proxSampled=$hasProximitySample")
                 }
             } else {
                 // Instantly cancel countdown if phone departs from flat face down
@@ -572,35 +614,39 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
     }
 
     private fun disableDoNotDisturb() {
-        if (!_isDndActive.value) return
         try {
-            if (notifManager.isNotificationPolicyAccessGranted) {
-                if (wasDndActivatedByService) {
-                    // Only restore when the filter is still the one this service set; if the user
-                    // changed DND manually while face down, leave their choice intact.
-                    // The service only ever activates DND from INTERRUPTION_FILTER_ALL, so ALL
-                    // always reproduces the pre-flip state.
-                    val currentFilter = notifManager.currentInterruptionFilter
-                    if (currentFilter == NotificationManager.INTERRUPTION_FILTER_PRIORITY) {
-                        notifManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
-                        Log.i(TAG, "DND disabled, restored interruptionFilter=ALL")
+            if (_isDndActive.value) {
+                if (notifManager.isNotificationPolicyAccessGranted) {
+                    if (wasDndActivatedByService) {
+                        // Only restore when the filter is still the one this service set; if the user
+                        // changed DND manually while face down, leave their choice intact.
+                        // The service only ever activates DND from INTERRUPTION_FILTER_ALL, so ALL
+                        // always reproduces the pre-flip state.
+                        val currentFilter = notifManager.currentInterruptionFilter
+                        if (currentFilter == NotificationManager.INTERRUPTION_FILTER_PRIORITY) {
+                            notifManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+                            Log.i(TAG, "DND disabled, restored interruptionFilter=ALL")
+                        } else {
+                            Log.i(TAG, "DND was modified externally during flip-down ($currentFilter); leaving system DND state untouched")
+                        }
                     } else {
-                        Log.i(TAG, "DND was modified externally during flip-down ($currentFilter); leaving system DND state untouched")
+                        Log.i(TAG, "DND was already active prior to flip-down; leaving current system DND state untouched")
                     }
                 } else {
-                    Log.i(TAG, "DND was already active prior to flip-down; leaving current system DND state untouched")
+                    Log.w(TAG, "Notification Policy Access not granted during disableDoNotDisturb; resetting internal state")
                 }
-            } else {
-                Log.w(TAG, "Notification Policy Access not granted during disableDoNotDisturb; resetting internal state")
-            }
 
-            persistState(active = false)
-            _isDndActive.value = false
-            triggerFlipUpHaptic()
-            updateNotification(active = false)
+                wasDndActivatedByService = false
+                persistState(active = false)
+                _isDndActive.value = false
+                updateNotification(active = false)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error disabling DND", e)
         }
+        // Physical flip-up feedback must still fire when DND was turned off
+        // externally while the phone was face down; the old early return ate it.
+        triggerFlipUpHaptic()
     }
 
     private fun restoreDndIfNeeded() {
@@ -767,6 +813,11 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         // Final stillness threshold required at 2.0s mark
         private const val MAX_DELTA_G_FINAL_CHECK = 0.12f
         private const val MAX_GYRO_FINAL_CHECK = 0.08f
+
+        // A proximity reading that has not changed for this long is considered stale.
+        // Sensors only report on change, so a missing or dead sensor must not block
+        // flip detection forever.
+        private const val PROXIMITY_STALE_MS = 5000L
 
         private val _isRunning = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()

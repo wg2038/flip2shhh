@@ -2,6 +2,15 @@
 
 All notable changes to flip2shhh are documented in this file.
 
+## [2.1.5.3] - 2026-10-18
+
+Final Memorial Edition release. This last revision was completed with the DeepSeek v4.1 Flash model.
+
+- **WAKE_LOCK permission restored.** The service creates and acquires a partial wake lock during debounce countdowns, but this branch's manifest had dropped the permission, so every acquisition was rejected with `SecurityException`. The permission is back and the timed debounce now actually holds the CPU awake.
+- **All 1.0.4 foundation fixes synced.** Proximity detection falls back to stillness for missing or stale readings; the wake lock is re-armed with a generation token and a safety release; the auto-lock switch always reflects the stored preference; DND permission revocation stops the service; flip-up haptics survive an external DND-off; onboarding pages scroll; the notification permission is requested once; the hero control has switch semantics; the boot receiver is no longer exported; data-extraction rules are declared.
+- **Audio focus recovery.** The terminal player now resumes after `AUDIOFOCUS_GAIN` while the screen is in the foreground, instead of staying paused until a lifecycle resume.
+- **Terminal recomposition reduced.** Playback position is read through `derivedStateOf`, so the 80 ms poll only invalidates the active lyric line (and line-boundary UI) instead of recomposing the whole screen and re-scanning the lyric list on every tick.
+
 ## [2.1.5.2] - 2026-10-15
 
 - **Continuous Stillness Verification**: Removed proximity bypass on motion stillness check, ensuring any physical movement or vibration during the 2.0s countdown resets the timer even when the proximity sensor is occluded.

@@ -38,7 +38,11 @@ jobs:
           FLIP2SHHH_KEY_PASSWORD: ${{ secrets.FLIP2SHHH_KEY_PASSWORD }}
         run: |
           if [ -z "$FLIP2SHHH_KEYSTORE_BASE64" ]; then
-            echo "Signing secrets not configured; falling back to debug signing."
+            if [ "$GITHUB_REPOSITORY" = "wg2038/flip2shhh" ]; then
+              echo "::error::Release signing secrets are required in this repository."
+              exit 1
+            fi
+            echo "Signing secrets not configured; falling back to debug signing for this fork."
             exit 0
           fi
           echo "storeFile=flip2shhh-release.jks" > keystore.properties

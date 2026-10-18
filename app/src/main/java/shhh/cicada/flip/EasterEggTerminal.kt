@@ -32,7 +32,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -519,14 +519,26 @@ fun EasterEggTerminalScreen(
         // with the easter egg song.
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         val focusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-            if (focusChange == AudioManager.AUDIOFOCUS_LOSS ||
-                focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
-            ) {
-                try {
-                    if (player?.isPlaying == true) {
-                        player?.pause()
-                    }
-                } catch (_: Exception) {}
+            when (focusChange) {
+                AudioManager.AUDIOFOCUS_LOSS,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    try {
+                        if (player?.isPlaying == true) {
+                            player?.pause()
+                        }
+                    } catch (_: Exception) {}
+                }
+                AudioManager.AUDIOFOCUS_GAIN -> {
+                    // Resume only while the terminal is actually in the foreground;
+                    // otherwise a focus gain would restart the song in the background.
+                    try {
+                        if (isCommandEntered && !isSongFinished && player?.isPlaying == false &&
+                            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+                        ) {
+                            player?.start()
+                        }
+                    } catch (_: Exception) {}
+                }
             }
         }
         val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -592,9 +604,15 @@ fun EasterEggTerminalScreen(
     }
 
     // Global lead: a line becomes current LYRIC_LEAD_MS before its vocal timestamp.
-    val effectivePos = currentPosMs + LYRIC_LEAD_MS
-    val activeIndex = remember(effectivePos, lyrics) {
-        lyrics.indexOfLast { it.timestampMs <= effectivePos }
+    // Keep position reads inside derivedStateOf: the screen then recomposes only when
+    // the current line changes, not on every 80 ms playback poll. The active line
+    // itself subscribes to currentPosState for its typing animation.
+    val currentPosState = remember { derivedStateOf { currentPosMs } }
+    val activeIndex by remember(lyrics) {
+        derivedStateOf {
+            val effectivePos = currentPosMs + LYRIC_LEAD_MS
+            lyrics.indexOfLast { it.timestampMs <= effectivePos }
+        }
     }
 
     LaunchedEffect(mediaPlayerInstance) {
@@ -656,13 +674,11 @@ fun EasterEggTerminalScreen(
         )
     }
 
-    val displayedIntroCount = if (!isCommandEntered) 0 else {
-        introLogs.count { it.first <= currentPosMs }
+    val displayedIntroCount by remember(introLogs) {
+        derivedStateOf {
+            if (!isCommandEntered) 0 else introLogs.count { it.first <= currentPosMs }
+        }
     }
-
-    // Lyric items read playback position through this State so that only the active
-    // line subscribes to position updates; past lines never recompose on a tick.
-    val effectivePosState = rememberUpdatedState(effectivePos)
 
     // Pause auto-scroll while the user drags the list; resume after a grace period.
     var userDragging by remember { mutableStateOf(false) }
@@ -918,7 +934,7 @@ fun EasterEggTerminalScreen(
                         // Typing is keyed to real playback position. Keep the RAW elapsed
                         // value: it is negative during the activation lead-in, and only
                         // that negative state (not a coerced 0) may gate the first char.
-                        val rawElapsedInLine = effectivePosState.value - line.timestampMs - LYRIC_LEAD_MS - LYRIC_TYPE_DELAY_MS
+                        val rawElapsedInLine = currentPosState.value - line.timestampMs - LYRIC_LEAD_MS - LYRIC_TYPE_DELAY_MS
                         val typingWindowMs = (lineDuration - LYRIC_LEAD_MS - LYRIC_TYPE_DELAY_MS).coerceAtLeast(300L)
                         // The body track (every char after the first) runs BODY_LEAD ahead:
                         // folding it into the elapsed measure shifts each later char earlier

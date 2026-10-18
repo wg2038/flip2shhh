@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Preferences are small and contain no secrets, so they may be carried over by
+  cloud backup and device-to-device transfer. Declaring the rules explicitly
+  replaces the deprecated allowBackup-only configuration on Android 12+.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>
