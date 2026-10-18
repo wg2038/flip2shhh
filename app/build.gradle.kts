@@ -22,15 +22,16 @@ android {
         applicationId = "shhh.cicada.flip"
         minSdk = 33
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     lint {
+        // Lint warnings stay visible in reports; real lint errors should fail CI.
         checkReleaseBuilds = false
-        abortOnError = false
+        abortOnError = true
     }
 
     // Release signing credentials live in a root-level keystore.properties
@@ -65,9 +66,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -76,6 +74,12 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
     }
 }
 

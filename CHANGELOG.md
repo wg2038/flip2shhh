@@ -2,6 +2,21 @@
 
 All notable changes to flip2shhh are documented in this file.
 
+## [1.0.4] - 2026-10-18
+
+Final Standard Edition release. This last revision was completed with the DeepSeek v4.1 Flash model.
+
+- **Proximity detection no longer locks out.** A missing proximity sample is treated as "unknown" instead of "far", a reading older than 5 s is considered stale, and NEAR is recognized as any value below the sensor's maximum range. Flip detection now falls back to the stillness check on devices whose proximity sensor never reports or stops reporting.
+- **Wake lock renewal fixed.** Each countdown re-arms an untimed partial wake lock with a generation token and an explicit safety release, avoiding both the stale 3 s timeout and the AOSP pitfall where a timed `acquire()` leaves an old releaser behind.
+- **Auto-lock switch can always be turned off.** The switch reflects the stored preference rather than the effective permission state, shows a "permission required" subtitle when accessibility is disabled, and no longer silently re-enables itself.
+- **DND permission revocation stops the service immediately.** The interruption-filter receiver now resets ownership state, persists it, and calls `stopSelf()` instead of waiting for the activity to resume.
+- **Flip-up feedback restored.** A confirmed flip-up now always plays the subtle haptic, even if DND was turned off externally while the phone was face down.
+- **Onboarding pages scroll.** Both onboarding pages use a vertically scrollable layout with a minimum viewport height, so permission cards and the only completion button stay reachable on small screens and at large font scales.
+- **Notification permission is requested once.** A persisted flag prevents the runtime notification-permission dialog from being launched on every app start.
+- **Accessible hero control.** The centerpiece is now a semantics `Switch` with a screen-reader description instead of an unlabeled clickable `Box`.
+- **Manifest and resource hardening.** The boot receiver is no longer exported, and Android 12+ data-extraction rules explicitly cover the preference store.
+- **Cleanup.** Removed the obsolete API-level branch in `startForeground`, replaced autoboxed Compose state with `mutableIntStateOf`, and removed the redundant programmatic portrait lock (the manifest still declares portrait).
+
 ## [1.0.3] - 2026-10-15
 
 - **Continuous Stillness Verification**: Removed proximity bypass on motion stillness check, ensuring any physical movement or vibration during the 2.0s countdown resets the timer even when the proximity sensor is occluded.
