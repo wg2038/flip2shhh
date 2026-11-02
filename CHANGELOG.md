@@ -2,6 +2,14 @@
 
 All notable changes to flip2shhh are documented in this file.
 
+## [2.1.5.4] - 2026-11-02
+
+- **Eliminate Mid-Air False Triggers**: Replaced frame-to-frame delta checks on low-passed gravity data with 50Hz raw accelerometer sliding-window statistical variance and gyroscope energy analysis. Rigid tabletop placement ($\sigma_a^2 < 0.0015\,\text{m}^2/\text{s}^4$) is strictly separated from handheld hovering and physiological tremor ($\sigma_a^2 \ge 0.0035\,\text{m}^2/\text{s}^4$).
+- **Persistent Hardware Proximity Gating**: Fixed proximity sensor categorization by removing `"ear"` from virtual exclusions (restoring genuine TMD3725/STK33911 earpiece optical sensors). Removed the 5s staleness timeout on `ON_CHANGE` proximity readings so mid-air open-air holding (`FAR`) immediately blocks flip-down entry without expiring.
+- **Eliminate Debounce Grace Loophole**: Replaced the 250ms debounce grace recheck with a full 2.0s continuous stillness window, preventing handheld tremor from opportunistically triggering DND on single-sample zero crossings.
+- **Symmetrical Lift Detection**: Lifting the phone off a table surface immediately transitions proximity to `FAR` with dynamic acceleration, restoring DND cleanly without requiring a $39^\circ$ tilt.
+- **Unit Test Coverage & Easter Egg Preserved**: Added `StillnessDetectorTest` verifying mathematical separation between rigid tabletop placement and handheld mid-air tremor. All Coral Sea terminal player features remain intact.
+
 ## [2.1.5.3] - 2026-10-18
 
 Final Memorial Edition release. This last revision was completed with the DeepSeek v4.1 Flash model.

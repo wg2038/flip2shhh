@@ -22,8 +22,8 @@ android {
         applicationId = "shhh.cicada.flip"
         minSdk = 33
         targetSdk = 34
-        versionCode = 5
-        versionName = "2.1.5.3"
+        versionCode = 6
+        versionName = "2.1.5.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -95,4 +95,5 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    testImplementation("junit:junit:4.13.2")
 }
