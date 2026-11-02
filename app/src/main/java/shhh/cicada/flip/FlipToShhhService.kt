@@ -38,8 +38,9 @@ import kotlin.math.sqrt
  * Flip to Shhh Service. Flip the phone face down to mute, flip back to restore.
  *
  * Algorithm highlights:
- *  - Strict flatness & gravity vector analysis: ensures device is resting flat on a surface (tilt <= 15°).
- *  - Proximity sensor fusion: verifies screen is facing a physical surface (desk/table), preventing false triggers in mid-air or slanted mounts.
+ *  - Strict flatness & gravity vector analysis: ensures device is resting flat on a surface (tilt <= 15° - 20°).
+ *  - Persistent optical proximity verification: screen must face a physical surface (desk/table), preventing false triggers in mid-air.
+ *  - 50Hz raw accelerometer sliding-window variance and gyroscope energy analysis: strictly differentiates tabletop resting from physiological hand tremor.
  *  - Continuous 2.0s stillness window: guarantees the phone remains stationary on the surface before triggering DND.
  *  - Dual-pulse haptic feedback on flip-down ("咚 - 咚"), subtle click on flip-up.
  *  - Smart DND ownership tracking: never overwrites or clears external system-scheduled DND rules.
@@ -60,20 +61,33 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
     private var proximitySensor: Sensor? = null
     private var activeOrientationSensor: Sensor? = null
     private var hasOpticalProximity: Boolean = false
+    private var isProximityRegistered: Boolean = false
 
     private var currentXValue: Float = 0f
     private var currentYValue: Float = 0f
     private var currentZValue: Float = 0f
 
-    private var prevXValue: Float = 0f
-    private var prevYValue: Float = 0f
-    private var prevZValue: Float = 0f
-    private var currentDeltaG: Float = 0f
+    private var hasAccelSample: Boolean = false
+    private var prevAccelX: Float = 0f
+    private var prevAccelY: Float = 0f
+    private var prevAccelZ: Float = 0f
+    private var currentDeltaA: Float = 0f
+
     private var currentGyroRotation: Float = 0f
     private var isProximityNear: Boolean = false
     private var hasOrientationSample: Boolean = false
     private var hasProximitySample: Boolean = false
-    private var lastProximityEventTime: Long = 0L
+
+    // Sliding-window circular buffers for statistical variance calculation at 50Hz
+    private val accelXBuffer = FloatArray(VARIANCE_WINDOW_SIZE)
+    private val accelYBuffer = FloatArray(VARIANCE_WINDOW_SIZE)
+    private val accelZBuffer = FloatArray(VARIANCE_WINDOW_SIZE)
+    private var accelBufferIndex = 0
+    private var accelBufferCount = 0
+
+    private val gyroSqBuffer = FloatArray(VARIANCE_WINDOW_SIZE)
+    private var gyroBufferIndex = 0
+    private var gyroBufferCount = 0
 
     private var faceDownStartTime: Long = 0L
 
@@ -127,30 +141,89 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         }
     }
 
-    // A proximity sensor only reports on change. If it never reports, or stops
-    // reporting while face down, treating the last "far" value as authoritative
-    // would lock out flip detection permanently (the v1.0.2 regression). A reading
-    // older than PROXIMITY_STALE_MS is ignored; stillness then decides on its own.
-    private fun hasFreshProximityReading(): Boolean =
-        hasProximitySample &&
-                (SystemClock.elapsedRealtime() - lastProximityEventTime <= PROXIMITY_STALE_MS)
+    private fun resetBuffers() {
+        accelBufferIndex = 0
+        accelBufferCount = 0
+        gyroBufferIndex = 0
+        gyroBufferCount = 0
+    }
 
-    private fun proximityBlocksEntry(): Boolean =
-        hasOpticalProximity && hasFreshProximityReading() && !isProximityNear
+    private fun addAccelSample(x: Float, y: Float, z: Float) {
+        accelXBuffer[accelBufferIndex] = x
+        accelYBuffer[accelBufferIndex] = y
+        accelZBuffer[accelBufferIndex] = z
+        accelBufferIndex = (accelBufferIndex + 1) % VARIANCE_WINDOW_SIZE
+        if (accelBufferCount < VARIANCE_WINDOW_SIZE) {
+            accelBufferCount++
+        }
+    }
+
+    private fun computeAccelVariance(): Float {
+        val count = accelBufferCount
+        if (count < 15) return Float.MAX_VALUE
+        var sumX = 0f
+        var sumY = 0f
+        var sumZ = 0f
+        for (i in 0 until count) {
+            sumX += accelXBuffer[i]
+            sumY += accelYBuffer[i]
+            sumZ += accelZBuffer[i]
+        }
+        val meanX = sumX / count
+        val meanY = sumY / count
+        val meanZ = sumZ / count
+
+        var varSum = 0f
+        for (i in 0 until count) {
+            val dx = accelXBuffer[i] - meanX
+            val dy = accelYBuffer[i] - meanY
+            val dz = accelZBuffer[i] - meanZ
+            varSum += (dx * dx + dy * dy + dz * dz)
+        }
+        return varSum / count
+    }
+
+    private fun addGyroSample(gx: Float, gy: Float, gz: Float) {
+        val normSq = gx * gx + gy * gy + gz * gz
+        gyroSqBuffer[gyroBufferIndex] = normSq
+        gyroBufferIndex = (gyroBufferIndex + 1) % VARIANCE_WINDOW_SIZE
+        if (gyroBufferCount < VARIANCE_WINDOW_SIZE) {
+            gyroBufferCount++
+        }
+    }
+
+    private fun computeGyroEnergy(): Float {
+        val count = gyroBufferCount
+        if (count < 15) return Float.MAX_VALUE
+        var sum = 0f
+        for (i in 0 until count) {
+            sum += gyroSqBuffer[i]
+        }
+        return sum / count
+    }
+
+    // Proximity gate: On devices with hardware optical proximity sensors, entry is only
+    // permitted when the screen is physically facing a close surface (NEAR). Mid-air floating
+    // reports FAR and immediately blocks entry. Virtual proximity devices fall back to the
+    // rigorous 50Hz accelerometer variance and gyro energy analysis.
+    private fun isProximityPermitting(): Boolean {
+        if (!hasOpticalProximity) return true
+        if (!hasProximitySample) return true
+        return isProximityNear
+    }
 
     private val debounceRunnable: Runnable = Runnable {
         val currentlyFlipped = _isFlippedDown.value
         val hMag = sqrt(currentXValue * currentXValue + currentYValue * currentYValue)
-        val isPhysicallyStationary = (currentDeltaG <= MAX_DELTA_G_FINAL_CHECK) && (currentGyroRotation <= MAX_GYRO_FINAL_CHECK)
         val isOrientationFlatDown = (currentZValue <= FACE_DOWN_ENTER_Z_THRESHOLD) && (hMag <= MAX_HORIZONTAL_GRAVITY)
-        val isFlatFaceDownOrientation = isOrientationFlatDown && !proximityBlocksEntry()
+        val isFlatFaceDownOrientation = isOrientationFlatDown && isProximityPermitting()
 
         if (pendingTargetState == TargetFlipState.DOWN && !currentlyFlipped) {
             val now = SystemClock.elapsedRealtime()
             val elapsedTime = now - faceDownStartTime
             val remainingMs = FIXED_DEBOUNCE_DOWN_MS - elapsedTime
 
-            if (remainingMs > 30L) {
+            if (remainingMs > 50L) {
                 if (isFlatFaceDownOrientation) {
                     acquireWakeLock(remainingMs + 1000L)
                     handler.postDelayed(debounceRunnable, remainingMs)
@@ -160,9 +233,14 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
                     pendingTargetState = TargetFlipState.NONE
                     releaseWakeLock()
                     setFastSensorRate(false)
+                    resetBuffers()
                     return@Runnable
                 }
             }
+
+            val accelVar = computeAccelVariance()
+            val gyroEnergy = computeGyroEnergy()
+            val isPhysicallyStationary = (accelVar <= MAX_TABLE_ACCEL_VARIANCE) && (gyroEnergy <= MAX_TABLE_GYRO_ENERGY)
 
             if (isFlatFaceDownOrientation && isPhysicallyStationary) {
                 if (!notifManager.isNotificationPolicyAccessGranted) {
@@ -175,26 +253,31 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
                     stopSelf()
                     return@Runnable
                 }
-                Log.i(TAG, "Debounce confirmed (2000ms elapsed): entering Face Down mode (DND ON), Z=$currentZValue, H=$hMag, proxNear=$isProximityNear, proxSampled=$hasProximitySample, optProx=$hasOpticalProximity")
+                Log.i(TAG, "Debounce confirmed (2000ms elapsed): entering Face Down mode (DND ON), Z=$currentZValue, H=$hMag, accelVar=$accelVar, gyroEnergy=$gyroEnergy, proxNear=$isProximityNear, optProx=$hasOpticalProximity")
                 _isFlippedDown.value = true
                 enableDoNotDisturb()
                 setFastSensorRate(false)
             } else if (isFlatFaceDownOrientation) {
-                // Phone is flat on desk, but a transient vibration occurred right at the 2.0s mark.
-                // Recheck after a short 250ms grace window instead of restarting a full 2000ms countdown.
-                Log.i(TAG, "Debounce: phone flat but transient movement detected (dG=$currentDeltaG, gyro=$currentGyroRotation), retrying in 250ms")
-                acquireWakeLock(1000L)
-                handler.postDelayed(debounceRunnable, 250L)
+                // Phone is flat, but hand tremor or physical movement was detected by variance or gyro.
+                // Restart full stillness verification window instead of a leaky 250ms loop.
+                Log.i(TAG, "Debounce rejected: not stationary on a surface (accelVar=$accelVar, gyroEnergy=$gyroEnergy), restarting stillness verification")
+                faceDownStartTime = SystemClock.elapsedRealtime()
+                resetBuffers()
+                acquireWakeLock(FIXED_DEBOUNCE_DOWN_MS + 1000L)
+                handler.postDelayed(debounceRunnable, FIXED_DEBOUNCE_DOWN_MS)
                 return@Runnable
             } else {
                 Log.i(TAG, "Debounce cancelled: phone tilted or lifted during countdown (Z=$currentZValue, H=$hMag)")
+                pendingTargetState = TargetFlipState.NONE
+                releaseWakeLock()
                 setFastSensorRate(false)
+                resetBuffers()
             }
         } else if (pendingTargetState == TargetFlipState.UP && currentlyFlipped) {
             val isPoseExited = (currentZValue > FACE_DOWN_EXIT_Z_THRESHOLD) || (hMag > EXIT_HORIZONTAL_GRAVITY)
-            val isExitCondition = isPoseExited ||
-                    (hasOpticalProximity && hasFreshProximityReading() &&
-                            !isProximityNear && currentDeltaG > MAX_DELTA_G_TABLE_STILLNESS)
+            val isProximityLifted = hasOpticalProximity && hasProximitySample && !isProximityNear && (currentDeltaA > 0.15f)
+            val isExitCondition = isPoseExited || isProximityLifted
+
             if (isExitCondition) {
                 Log.i(TAG, "Debounce confirmed -> exiting Face Down mode (DND OFF), Z=$currentZValue, H=$hMag, proxNear=$isProximityNear")
                 _isFlippedDown.value = false
@@ -312,7 +395,7 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         val name = sensor.name.lowercase()
         val vendor = sensor.vendor.lowercase()
         val isVirtual = name.contains("palm") || name.contains("touch") || name.contains("virtual") ||
-                name.contains("ultrasound") || name.contains("elliptic") || name.contains("ear") ||
+                name.contains("ultrasound") || name.contains("elliptic") ||
                 name.contains("gesture") || vendor.contains("elliptic")
         return !isVirtual
     }
@@ -334,10 +417,11 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         pendingTargetState = TargetFlipState.NONE
         releaseWakeLock()
         hasOrientationSample = false
+        hasAccelSample = false
         hasProximitySample = false
-        lastProximityEventTime = 0L
         handler.removeCallbacks(debounceRunnable)
         usingFastSensorRate = false
+        resetBuffers()
         registerSensors()
         _isRunning.value = true
         return START_STICKY
@@ -354,8 +438,9 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         releaseWakeLock()
         wakeLock = null
         hasOrientationSample = false
+        hasAccelSample = false
         hasProximitySample = false
-        lastProximityEventTime = 0L
+        resetBuffers()
         _isRunning.value = false
         _isFlippedDown.value = false
         _isDndActive.value = false
@@ -366,12 +451,10 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
     // ── Sensor Listeners ───────────────────────────────────────────────────
 
     private fun registerSensors() {
-        unregisterAllSensors()
+        activeOrientationSensor?.let { sensorManager.unregisterListener(this, it) }
+        accelerometerSensor?.let { sensorManager.unregisterListener(this, it) }
+        gyroscopeSensor?.let { sensorManager.unregisterListener(this, it) }
 
-        // SENSOR_DELAY_UI (~15 Hz) aliases 8-12 Hz hand tremor below the stillness thresholds
-        // (Nyquist ~7.5 Hz), which defeated the mid-air false-trigger filter. While a flip-down
-        // countdown is running, oversample the motion sensors at ~50 Hz instead; the low-power
-        // UI rate is restored as soon as the countdown ends or is cancelled.
         val motionDelay = if (usingFastSensorRate) SensorManager.SENSOR_DELAY_GAME else SensorManager.SENSOR_DELAY_UI
 
         activeOrientationSensor?.let { sensor ->
@@ -383,10 +466,22 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
             Log.i(TAG, "Registered orientation sensor ${sensor.name}, delay=$motionDelay, success=$registered")
         }
 
-        // Gyroscope consumes substantial current (~3-6mA) and is only needed during
-        // the flip-down countdown to verify physical stillness and filter hand tremor.
-        // It remains powered down during idle states to preserve battery.
+        if (!isProximityRegistered) {
+            proximitySensor?.let { prox ->
+                val registered = sensorManager.registerListener(
+                    this,
+                    prox,
+                    SensorManager.SENSOR_DELAY_NORMAL
+                )
+                if (registered) isProximityRegistered = true
+                Log.i(TAG, "Registered proximity sensor ${prox.name}, success=$registered")
+            }
+        }
+
         if (usingFastSensorRate) {
+            if (accelerometerSensor != null && accelerometerSensor?.type != activeOrientationSensor?.type) {
+                sensorManager.registerListener(this, accelerometerSensor, motionDelay)
+            }
             gyroscopeSensor?.let { gyro ->
                 val registered = sensorManager.registerListener(
                     this,
@@ -397,23 +492,14 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
             }
         } else {
             currentGyroRotation = 0f
-        }
-
-        proximitySensor?.let { prox ->
-            val registered = sensorManager.registerListener(
-                this,
-                prox,
-                SensorManager.SENSOR_DELAY_NORMAL
-            )
-            Log.i(TAG, "Registered proximity sensor ${prox.name}, success=$registered")
+            currentDeltaA = 0f
+            resetBuffers()
         }
     }
 
     private fun unregisterAllSensors() {
-        // Deliberately does not touch handler callbacks: setFastSensorRate() re-registers the
-        // listeners while a countdown may be pending and must not cancel it. Lifecycle call
-        // sites that really need the runnable gone remove it explicitly.
         sensorManager.unregisterListener(this)
+        isProximityRegistered = false
     }
 
     private fun setFastSensorRate(fast: Boolean) {
@@ -432,11 +518,7 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
                 val distance = event.values[0]
                 val maxRange = proximitySensor?.maximumRange?.takeIf { it > 0f } ?: 5.0f
                 hasProximitySample = true
-                lastProximityEventTime = SystemClock.elapsedRealtime()
-                // Android reports "far" as maximumRange and "near" as anything below
-                // it. Do not additionally cap near at 4 cm: some sensors report a
-                // larger near value, which used to be misread as far and blocked DND.
-                isProximityNear = distance < maxRange || distance <= 4.0f
+                isProximityNear = if (maxRange <= 4.0f) distance < maxRange else distance <= 4.0f
                 checkFlipState()
                 return
             }
@@ -445,6 +527,7 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
                 val gy = event.values[1]
                 val gz = event.values[2]
                 currentGyroRotation = sqrt(gx * gx + gy * gy + gz * gz)
+                addGyroSample(gx, gy, gz)
 
                 // High-precision hand tremor filter:
                 // During flip-down countdown, any rotation above table stillness resets the timer.
@@ -455,48 +538,64 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
                 }
                 return
             }
+            Sensor.TYPE_ACCELEROMETER -> {
+                val ax = event.values[0]
+                val ay = event.values[1]
+                val az = event.values[2]
+                addAccelSample(ax, ay, az)
+
+                if (!hasAccelSample) {
+                    hasAccelSample = true
+                    prevAccelX = ax
+                    prevAccelY = ay
+                    prevAccelZ = az
+                    currentDeltaA = 0f
+                } else {
+                    val dax = ax - prevAccelX
+                    val day = ay - prevAccelY
+                    val daz = az - prevAccelZ
+                    currentDeltaA = sqrt(dax * dax + day * day + daz * daz)
+                    prevAccelX = ax
+                    prevAccelY = ay
+                    prevAccelZ = az
+
+                    if (pendingTargetState == TargetFlipState.DOWN) {
+                        if (currentDeltaA > MAX_DELTA_A_TABLE_STILLNESS) {
+                            faceDownStartTime = SystemClock.elapsedRealtime()
+                        }
+                    }
+                }
+
+                if (activeOrientationSensor?.type == Sensor.TYPE_ACCELEROMETER) {
+                    updateOrientation(ax, ay, az)
+                }
+                return
+            }
+            Sensor.TYPE_GRAVITY -> {
+                val gx = event.values[0]
+                val gy = event.values[1]
+                val gz = event.values[2]
+                if (activeOrientationSensor?.type == Sensor.TYPE_GRAVITY) {
+                    updateOrientation(gx, gy, gz)
+                }
+                return
+            }
         }
+    }
 
-        val targetType = activeOrientationSensor?.type ?: return
-        if (event.sensor.type != targetType) return
-
-        val newX = event.values[0]
-        val newY = event.values[1]
-        val newZ = event.values[2]
-
+    private fun updateOrientation(x: Float, y: Float, z: Float) {
         if (!hasOrientationSample) {
             hasOrientationSample = true
-            prevXValue = newX
-            prevYValue = newY
-            prevZValue = newZ
-            currentXValue = newX
-            currentYValue = newY
-            currentZValue = newZ
-            currentDeltaG = 0f
+            currentXValue = x
+            currentYValue = y
+            currentZValue = z
             checkFlipState()
             return
         }
 
-        val dx = newX - prevXValue
-        val dy = newY - prevYValue
-        val dz = newZ - prevZValue
-        currentDeltaG = sqrt(dx * dx + dy * dy + dz * dz)
-
-        prevXValue = newX
-        prevYValue = newY
-        prevZValue = newZ
-
-        currentXValue = newX
-        currentYValue = newY
-        currentZValue = newZ
-
-        // Hand tremor micro-acceleration filter:
-        if (pendingTargetState == TargetFlipState.DOWN) {
-            if (currentDeltaG > MAX_DELTA_G_TABLE_STILLNESS) {
-                faceDownStartTime = SystemClock.elapsedRealtime()
-            }
-        }
-
+        currentXValue = x
+        currentYValue = y
+        currentZValue = z
         checkFlipState()
     }
 
@@ -515,13 +614,14 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         // 3. Proximity sensor fusion: verifies screen is facing a physical surface (desk/table)
         val isOrientationFlatDown = (currentZValue <= FACE_DOWN_ENTER_Z_THRESHOLD) &&
                 (hMag <= MAX_HORIZONTAL_GRAVITY)
-        val isFlatFaceDownOrientation = isOrientationFlatDown && !proximityBlocksEntry()
+        val isFlatFaceDownOrientation = isOrientationFlatDown && isProximityPermitting()
 
         // Exit condition: picked up, tilted beyond threshold, or lifted with physical motion
-        val isExitCondition = (currentZValue > FACE_DOWN_EXIT_Z_THRESHOLD) ||
-                (hMag > EXIT_HORIZONTAL_GRAVITY) ||
-                (hasOpticalProximity && hasFreshProximityReading() &&
-                        !isProximityNear && currentDeltaG > MAX_DELTA_G_TABLE_STILLNESS)
+        val isPoseExited = (currentZValue > FACE_DOWN_EXIT_Z_THRESHOLD) ||
+                (hMag > EXIT_HORIZONTAL_GRAVITY)
+        val isProximityLifted = hasOpticalProximity && hasProximitySample &&
+                !isProximityNear && (currentDeltaA > 0.15f)
+        val isExitCondition = isPoseExited || isProximityLifted
 
         val currentlyFlipped = _isFlippedDown.value
 
@@ -531,6 +631,7 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
                     handler.removeCallbacks(debounceRunnable)
                     pendingTargetState = TargetFlipState.DOWN
                     faceDownStartTime = SystemClock.elapsedRealtime()
+                    resetBuffers()
                     acquireWakeLock(FIXED_DEBOUNCE_DOWN_MS + 1000L)
                     handler.postDelayed(debounceRunnable, FIXED_DEBOUNCE_DOWN_MS)
                     setFastSensorRate(true)
@@ -543,6 +644,7 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
                     pendingTargetState = TargetFlipState.NONE
                     releaseWakeLock()
                     setFastSensorRate(false)
+                    resetBuffers()
                     Log.i(TAG, "Cancelled pending DOWN debounce timer (phone tilted or moved), Z=$currentZValue, H=$hMag")
                 }
             }
@@ -804,20 +906,17 @@ class FlipToShhhService : LifecycleService(), SensorEventListener {
         private const val FACE_DOWN_EXIT_Z_THRESHOLD = -7.5f
         private const val EXIT_HORIZONTAL_GRAVITY = 3.5f
 
-        // Table stillness thresholds (filters out physiological hand tremor in mid-air for virtual proximity):
-        // Solid table: Gyro < 0.02 rad/s, Delta G < 0.03 m/s^2.
-        // Handheld in mid-air: Gyro > 0.05 rad/s, Delta G > 0.07 m/s^2 due to 8-12Hz muscle tremor.
-        private const val MAX_DELTA_G_TABLE_STILLNESS = 0.07f
-        private const val MAX_GYRO_TABLE_STILLNESS = 0.05f
+        // Dynamic micro-motion thresholds during countdown (instantaneous jerk/rotation):
+        private const val MAX_DELTA_A_TABLE_STILLNESS = 0.25f
+        private const val MAX_GYRO_TABLE_STILLNESS = 0.12f
 
-        // Final stillness threshold required at 2.0s mark
-        private const val MAX_DELTA_G_FINAL_CHECK = 0.12f
-        private const val MAX_GYRO_FINAL_CHECK = 0.08f
+        // Rigorous statistical window variance thresholds (evaluated over circular buffer at 2.0s):
+        // Rigid table: Variance(a) < 0.0003 m^2/s^4, Gyro Energy < 0.00005 rad^2/s^2.
+        // Handheld in mid-air: Variance(a) >= 0.0030 m^2/s^4, Gyro Energy >= 0.0005 rad^2/s^2.
+        private const val MAX_TABLE_ACCEL_VARIANCE = 0.0015f
+        private const val MAX_TABLE_GYRO_ENERGY = 0.00030f
 
-        // A proximity reading that has not changed for this long is considered stale.
-        // Sensors only report on change, so a missing or dead sensor must not block
-        // flip detection forever.
-        private const val PROXIMITY_STALE_MS = 5000L
+        private const val VARIANCE_WINDOW_SIZE = 50 // 50 samples at 50Hz = ~1.0s window
 
         private val _isRunning = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
