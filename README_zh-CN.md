@@ -4,7 +4,7 @@
 
 **Flip to Shhh** · 翻过去，安静下来
 
-<img src="docs/screenshots/zh-CN/main_screen.png" width="270"><img src="docs/screenshots/zh-CN/settings_page.png" width="270"><img src="docs/screenshots/zh-CN/about_screen.png" width="270">
+<img src="docs/screenshots/zh-CN/main_screen.png" width="270"><img src="docs/screenshots/zh-CN/about_screen.png" width="270">
 
 一个开源的 Android 小工具：手机屏幕朝下放平两秒，自动开启勿扰；拿起来或翻回正面，恢复之前的状态。可选在翻面时顺手锁屏。
 

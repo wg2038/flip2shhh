@@ -4,7 +4,7 @@
 
 **Flip to Shhh** · flip it over, tune the world out
 
-<img src="docs/screenshots/en/main_screen.png" width="270"><img src="docs/screenshots/en/settings_page.png" width="270"><img src="docs/screenshots/en/about_screen.png" width="270">
+<img src="docs/screenshots/en/main_screen.png" width="270"><img src="docs/screenshots/en/about_screen.png" width="270">
 
 An open-source Android utility: place your phone face down on a desk for two seconds and Do Not Disturb turns on by itself. Pick it up or flip it back, and the previous state is restored. Optionally locks the screen as it flips.
 
