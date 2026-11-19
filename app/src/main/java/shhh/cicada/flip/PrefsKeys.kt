@@ -10,9 +10,8 @@ object PrefsKeys {
     const val KEY_DND_ACTIVE = "dnd_active"
     const val KEY_WAS_DND_ACTIVATED_BY_SERVICE = "was_dnd_activated_by_service"
     const val KEY_AUTO_LOCK_SCREEN = "auto_lock_screen"
+    const val KEY_PENDING_AUTO_LOCK_AUTH = "pending_auto_lock_auth"
     const val KEY_AUTO_START_BOOT = "auto_start_on_boot"
     const val KEY_SERVICE_USER_ENABLED = "service_user_enabled"
-    const val KEY_THEME_MODE = "theme_mode"
-    const val KEY_LANGUAGE_MODE = "language_mode"
-    const val KEY_NOTIFICATION_PERMISSION_ASKED = "notification_permission_asked"
+    const val KEY_TOOLBAR_HINT_SEEN = "toolbar_hint_seen"
 }

@@ -2,4 +2,33 @@
 <resources>
     <string name="app_name">Flip to Shhh</string>
     <string name="accessibility_service_desc">翻转静音自动锁屏服务（仅用于手机面朝下时自动熄屏锁屏，保留指纹与面部解锁支持）</string>
+
+    <!-- Permissions -->
+    <string name="perm_dnd_title">勿扰模式权限</string>
+    <string name="perm_dnd_required">未授权 · 点击前往设置</string>
+    <string name="perm_battery_title">后台无限制电池优化</string>
+    <string name="grant_btn">授权</string>
+    <string name="btn_cancel">取消</string>
+
+    <!-- Home Floating Toolbar & About Dialog -->
+    <string name="toolbar_autostart">开机自动启动</string>
+    <string name="toolbar_autolock">翻转自动锁屏</string>
+    <string name="toolbar_about">关于与开源协议</string>
+    <string name="about_version">版本：V1.0.6</string>
+    <string name="about_developer">开发者：Cicada</string>
+    <string name="btn_close">关闭</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome_title">翻转静音</string>
+    <string name="onboarding_next_btn">继续</string>
+    <string name="onboarding_perm_title">首次权限配置</string>
+    <string name="onboarding_start_btn">开始使用</string>
+
+    <!-- Service Notifications -->
+    <string name="channel_name">Flip to Shhh 服务</string>
+    <string name="channel_desc">Flip to Shhh 翻转静音服务</string>
+    <string name="notif_active_title">已开启勿扰模式</string>
+    <string name="notif_active_desc">手机面朝下 · 来电与通知已静音</string>
+    <string name="notif_idle_title">Flip to Shhh 运行中</string>
+    <string name="notif_idle_desc">翻转手机面朝下即可自动开启勿扰</string>
 </resources>

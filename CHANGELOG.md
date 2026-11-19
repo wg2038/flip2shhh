@@ -2,6 +2,14 @@
 
 All notable changes to flip2shhh are documented in this file.
 
+## [1.0.6] - 2026-11-19
+
+- **3-Tier Monet & Samsung One UI Dynamic Color**: Rebuilt `MonetThemeResolver` to use native `dynamicDarkColorScheme`/`dynamicLightColorScheme` on Pixel/AOSP, read the underlying system tonal palette (`system_accent*` / `system_neutral*`) or generate HCT schemes via `MaterialKolor` on Samsung One UI (bypassing One UI 9's `#387AFF` / `#94B8FF` static blue override on `system_primary`), and fall back cleanly to the canonical M3E purple palette when dynamic color is unavailable.
+- **Single-Screen M3E Interface**: Removed the secondary Settings screen and consolidated controls into a borderless M3E `ExpressiveFloatingToolbar` at the bottom of the home screen with three icon-only 48dp actions: Auto-start on Boot (`AutoMode`), Flip to Lock Screen (`Lock`), and About & MIT License (`Info`).
+- **System-Native Language & Theme**: Removed the redundant in-app language and theme pickers; appearance now follows the system dark/light mode automatically, and all UI/notification strings are unified under `res/values*/strings.xml` with Android 13+ `locales_config.xml` per-app language support.
+- **Dead Code Cleanup**: Removed obsolete `SettingsScreen`, `ExpressiveSettingsCard`, `Localization`, `AppStrings`, and unused icon/shape/typography/motion tokens.
+- **Memorial Edition (v2) Discontinued**: The easter-egg v2 branch has been permanently discontinued; all future maintenance focuses on the single-screen standard edition.
+
 ## [1.0.5] - 2026-11-02
 
 - **Eliminate Mid-Air False Triggers**: Replaced frame-to-frame delta checks on low-passed gravity data with 50Hz raw accelerometer sliding-window statistical variance and gyroscope energy analysis. Rigid tabletop placement ($\sigma_a^2 < 0.0015\,\text{m}^2/\text{s}^4$) is strictly separated from handheld hovering and physiological tremor ($\sigma_a^2 \ge 0.0035\,\text{m}^2/\text{s}^4$).
@@ -45,7 +53,7 @@ Final Standard Edition release. This last revision was completed with the DeepSe
 - **Android 14+ FGS Compliance**: Explicitly specified `ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE` when starting foreground service on API 34+.
 - **Dynamic Notification Channels**: Implemented locale-aware notification channel lifecycle migration, ensuring channel name and description refresh immediately upon in-app language change.
 
-## [1.0.1] - 2026-09-24
+## [1.0.1] - 2026-10-24
 
 - **Optical Proximity Correction**: Removed vendor-level Samsung exclusions from optical proximity detection, restoring hardware proximity verification and clean face-up exit detection on Samsung devices.
 - **Notification Channel Stability**: Retained a stable notification channel across in-app language switches instead of deleting active channels at runtime, eliminating Foreground Service notification crashes.

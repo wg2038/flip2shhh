@@ -2,4 +2,33 @@
 <resources>
     <string name="app_name">Flip to Shhh</string>
     <string name="accessibility_service_desc">翻轉靜音自動鎖定螢幕服務（僅用於手機螢幕朝下時自動關閉螢幕並鎖定，保留指紋與臉部解鎖支援）</string>
+
+    <!-- Permissions -->
+    <string name="perm_dnd_title">勿擾模式存取權限</string>
+    <string name="perm_dnd_required">未授權 · 點擊前往設定</string>
+    <string name="perm_battery_title">背景無限制電池最佳化</string>
+    <string name="grant_btn">授權</string>
+    <string name="btn_cancel">取消</string>
+
+    <!-- Home Floating Toolbar & About Dialog -->
+    <string name="toolbar_autostart">開機自動啟動</string>
+    <string name="toolbar_autolock">翻轉自動鎖定螢幕</string>
+    <string name="toolbar_about">關於與開源授權</string>
+    <string name="about_version">版本：V1.0.6</string>
+    <string name="about_developer">開發者：Cicada</string>
+    <string name="btn_close">關閉</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome_title">翻轉靜音</string>
+    <string name="onboarding_next_btn">繼續</string>
+    <string name="onboarding_perm_title">首次權限配置</string>
+    <string name="onboarding_start_btn">開始使用</string>
+
+    <!-- Service Notifications -->
+    <string name="channel_name">Flip to Shhh 服務</string>
+    <string name="channel_desc">Flip to Shhh 翻轉靜音服務</string>
+    <string name="notif_active_title">已開啟勿擾模式</string>
+    <string name="notif_active_desc">手機螢幕朝下 · 來電與通知已靜音</string>
+    <string name="notif_idle_title">Flip to Shhh 執行中</string>
+    <string name="notif_idle_desc">翻轉手機螢幕朝下即可自動開啟勿擾</string>
 </resources>

@@ -1,4 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Flip to Shhh</string>
     <string name="accessibility_service_desc">Flip to Shhh auto-lock screen service (used exclusively to lock screen when phone is face down, retaining Fingerprint and Face Unlock support).</string>
+
+    <!-- Permissions -->
+    <string name="perm_dnd_title">Do Not Disturb Access</string>
+    <string name="perm_dnd_required">Tap to grant DND access</string>
+    <string name="perm_battery_title">Unrestricted Battery</string>
+    <string name="grant_btn">Grant</string>
+    <string name="btn_cancel">Cancel</string>
+
+    <!-- Home Floating Toolbar & About Dialog -->
+    <string name="toolbar_autostart">Auto-start on Boot</string>
+    <string name="toolbar_autolock">Flip to Lock Screen</string>
+    <string name="toolbar_about">About &amp; License</string>
+    <string name="about_version">Version: V1.0.6</string>
+    <string name="about_developer">Developer: Cicada</string>
+    <string name="btn_close">Close</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome_title">Flip to Shhh</string>
+    <string name="onboarding_next_btn">Continue</string>
+    <string name="onboarding_perm_title">One-Time Setup</string>
+    <string name="onboarding_start_btn">Get Started</string>
+
+    <!-- Service Notifications -->
+    <string name="channel_name">Flip to Shhh Service</string>
+    <string name="channel_desc">Flip to mute gesture detection service</string>
+    <string name="notif_active_title">Do Not Disturb Active</string>
+    <string name="notif_active_desc">Phone face down · Calls &amp; notifications muted</string>
+    <string name="notif_idle_title">Flip to Shhh is Running</string>
+    <string name="notif_idle_desc">Flip phone face down to mute</string>
 </resources>

@@ -5,7 +5,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.core.content.ContextCompat
 
 /**
  * BootReceiver. Starts FlipToShhhService automatically after device boot.
@@ -17,9 +16,7 @@ class BootReceiver : BroadcastReceiver() {
         Log.i(TAG, "Received broadcast intent: $action")
 
         if (action == Intent.ACTION_BOOT_COMPLETED ||
-            action == Intent.ACTION_MY_PACKAGE_REPLACED ||
-            action == "android.intent.action.QUICKBOOT_POWERON" ||
-            action == "com.htc.intent.action.QUICKBOOT_POWERON"
+            action == Intent.ACTION_MY_PACKAGE_REPLACED
         ) {
             val prefs = context.getSharedPreferences(PrefsKeys.PREFS_NAME, Context.MODE_PRIVATE)
             val autoStartEnabled = prefs.getBoolean(PrefsKeys.KEY_AUTO_START_BOOT, true)
@@ -50,7 +47,7 @@ class BootReceiver : BroadcastReceiver() {
             Log.i(TAG, "Starting FlipToShhhService automatically on boot...")
             try {
                 val serviceIntent = Intent(context, FlipToShhhService::class.java)
-                ContextCompat.startForegroundService(context, serviceIntent)
+                context.startForegroundService(serviceIntent)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to auto-start FlipToShhhService on boot", e)
             }

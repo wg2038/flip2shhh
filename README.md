@@ -41,12 +41,12 @@ An accessibility service calls `GLOBAL_ACTION_LOCK_SCREEN` so the screen locks a
 
 ### Service and interface
 
-The detector runs in a `specialUse` foreground service with a minimal-importance notification, starts on boot when enabled, and returns `START_STICKY`. The Compose interface provides onboarding, permission status, an optional auto-start switch, an auto-lock switch, language selection (Simplified Chinese, Traditional Chinese, English), theme selection, and Material 3 dynamic color.
+The detector runs in a `specialUse` foreground service with a minimal-importance notification, starts on boot when enabled, and returns `START_STICKY`. The streamlined single-screen Material 3 Expressive (M3E) interface provides one-time onboarding, a morphing hero toggle, and a bottom floating icon toolbar for auto-start, flip-to-lock, and About / MIT License. Appearance follows the system dark/light theme, language follows the system (with Android 13+ per-app language support for English, Simplified Chinese, and Traditional Chinese), and dynamic color adapts across Pixel/AOSP Monet, Samsung One UI tonal palettes, and an M3E purple fallback.
 
 ## Two editions
 
-- **Standard Edition — `main`, v1.0.5.** The daily-use build described above.
-- **Memorial Edition — `easter-egg`, v2.1.5.4.** The same foundation plus a terminal music-player easter egg: seven taps on the version number in the About page open a Linux-style terminal with an embedded song and synced lyrics.
+- **Standard Edition — `main`, v1.0.6.** The daily-use build described above.
+- **Memorial Edition — `easter-egg`, v2.1.5.4 (Permanently discontinued).** The same foundation plus a terminal music-player easter egg: seven taps on the version number in the About page open a Linux-style terminal with an embedded song and synced lyrics.
 
 Both editions share the package name `shhh.cicada.flip` and one signing key. Installing one over the other requires uninstalling the first.
 
@@ -62,7 +62,7 @@ cd flip2shhh
 ./gradlew assembleDebug
 ```
 
-Output lands in `app/build/outputs/apk/debug/`. Needs Android SDK 34.
+Output lands in `app/build/outputs/apk/debug/`. Needs Android SDK 35.
 
 ## Privacy
 
@@ -70,7 +70,7 @@ The app requests no internet permission and includes no analytics or tracking SD
 
 ## Latest update
 
-**2026-11-02** · Version 1.0.5 completely eliminates mid-air false triggers by adopting 50Hz raw accelerometer sliding-window statistical variance and persistent hardware proximity gating.
+**2026-11-19** · Version 1.0.6 streamlines the UI into a single-screen M3E layout with a borderless floating icon toolbar, adopts system-native per-app language (`locales_config.xml`) and dark/light theme, and introduces 3-tier Monet + Samsung One UI dynamic color resolution.
 
 ## License
 
