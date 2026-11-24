@@ -22,8 +22,8 @@ android {
         applicationId = "shhh.cicada.flip"
         minSdk = 33
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 9
+        versionName = "1.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -32,6 +32,18 @@ android {
         // Lint warnings stay visible in reports; real lint errors should fail CI.
         checkReleaseBuilds = false
         abortOnError = true
+
+        // Work around lint detectors bundled with lifecycle 2.8.0 / Compose 1.7
+        // that crash under the Kotlin 2.0 analysis API
+        // ("Found class KaCallableMemberCall, but interface was expected").
+        // None of these rules are used by this project. Re-enable them after
+        // upgrading AGP / Kotlin / Compose to a mutually compatible lint stack.
+        disable += setOf(
+            "AutoboxingStateCreation",
+            "FrequentlyChangingValue",
+            "NullSafeMutableLiveData",
+            "RememberInComposition",
+        )
     }
 
     // Release signing credentials live in a root-level keystore.properties

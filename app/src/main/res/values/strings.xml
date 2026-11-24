@@ -14,7 +14,7 @@
     <string name="toolbar_autostart">Auto-start on Boot</string>
     <string name="toolbar_autolock">Flip to Lock Screen</string>
     <string name="toolbar_about">About &amp; License</string>
-    <string name="about_version">Version: V1.0.6</string>
+    <string name="about_version">Version: V%1$s</string>
     <string name="about_developer">Developer: Cicada</string>
     <string name="btn_close">Close</string>
 

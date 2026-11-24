@@ -2,6 +2,13 @@
 
 All notable changes to flip2shhh are documented in this file.
 
+## [1.0.8] - 2026-11-24
+
+- **Version Label Source of Truth**: The About dialog no longer hardcodes `V1.0.6`. All three locales now format `BuildConfig.VERSION_NAME`, so the displayed version always matches the released APK.
+- **Lint Toolchain Compatibility**: Fixed the CI lint crash caused by lifecycle 2.8.0 / Compose 1.7 lint detectors running on the Kotlin 2.0 Analysis API (`IncompatibleClassChangeError: KaCallableMemberCall`). The four incompatible detectors (`NullSafeMutableLiveData`, `FrequentlyChangingValue`, `RememberInComposition`, `AutoboxingStateCreation`) are disabled with an explanatory comment until the AGP/Kotlin/Compose lint stack is upgraded.
+- **Scaffold Padding Lint Fix**: The home screen now consumes the Material 3 `Scaffold` inner padding instead of discarding it, clearing `UnusedMaterial3ScaffoldPaddingParameter`.
+- **CI Green**: `./gradlew lintDebug` and the `Android CI` workflow now complete successfully, in addition to the 11 passing unit tests and the release build.
+
 ## [1.0.7] - 2026-11-24
 
 - **Framework-Free Detection Core**: Extracted `StillnessDetector` and `FlipStateMachine` as pure Kotlin classes with injected hardware capabilities and `elapsedRealtime` timestamps, so flip detection is unit-testable without Android.

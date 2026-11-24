@@ -45,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import shhh.cicada.flip.AppIcons
+import shhh.cicada.flip.BuildConfig
 import shhh.cicada.flip.R
 import shhh.cicada.flip.ui.components.ExpressiveFloatingToolbar
 import shhh.cicada.flip.ui.components.ExpressiveHeroCenterpiece
@@ -107,7 +108,7 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = stringResource(R.string.about_version),
+                        text = stringResource(R.string.about_version, BuildConfig.VERSION_NAME),
                         style = ExpressiveTypographyTokens.ItemSubtitle,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -146,10 +147,11 @@ fun HomeScreen(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         modifier = modifier
-    ) { _ ->
+    ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(innerPadding)
                 .padding(horizontal = 24.dp)
         ) {
             // 1. Top-left M3E headline directly beneath status bar (no double inset)

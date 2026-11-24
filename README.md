@@ -45,7 +45,7 @@ The detector runs in a `specialUse` foreground service with a minimal-importance
 
 ## Two editions
 
-- **Standard Edition — `main`, v1.0.7.** The daily-use build described above.
+- **Standard Edition — `main`, v1.0.8.** The daily-use build described above.
 - **Memorial Edition — `easter-egg`, v2.1.5.4 (Permanently discontinued).** The same foundation plus a terminal music-player easter egg: seven taps on the version number in the About page open a Linux-style terminal with an embedded song and synced lyrics.
 
 Both editions share the package name `shhh.cicada.flip` and one signing key. Installing one over the other requires uninstalling the first.
@@ -70,7 +70,7 @@ The app requests no internet permission and includes no analytics or tracking SD
 
 ## Latest update
 
-**2026-11-24** · Version 1.0.7 extracts the detection core into framework-free `StillnessDetector` and `FlipStateMachine` classes, adds a no-gyroscope fallback, de-meaned gyro variance with 300 ms warm-up discard, a 3-retry stillness circuit breaker, significant-motion low-power exit detection, and external-DND bounce-back suppression.
+**2026-11-24** · Version 1.0.8 fixes the About dialog to read `BuildConfig.VERSION_NAME` (no more hardcoded 1.0.6), resolves the Kotlin 2.0 lint detector crashes so `lintDebug`/CI pass, and clears the Material 3 Scaffold padding lint error.
 
 ## License
 

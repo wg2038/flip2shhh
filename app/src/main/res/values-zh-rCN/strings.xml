@@ -14,7 +14,7 @@
     <string name="toolbar_autostart">开机自动启动</string>
     <string name="toolbar_autolock">翻转自动锁屏</string>
     <string name="toolbar_about">关于与开源协议</string>
-    <string name="about_version">版本：V1.0.6</string>
+    <string name="about_version">版本：V%1$s</string>
     <string name="about_developer">开发者：Cicada</string>
     <string name="btn_close">关闭</string>
 
