@@ -1,136 +1,184 @@
 package shhh.cicada.flip
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Random
+import kotlin.math.PI
 import kotlin.math.sin
-import kotlin.math.sqrt
 
+/**
+ * Unit tests for the framework-free [StillnessDetector]. All buffers and
+ * variance math live in production code; these tests only feed synthetic
+ * sensor streams through the public API.
+ */
 class StillnessDetectorTest {
 
-    private val windowSize = 50
-    private val maxTableAccelVariance = 0.0015f
-    private val maxTableGyroEnergy = 0.00030f
+    private val period50Hz = 20L
+    private val defaultSamples = 150
 
-    private fun computeVariance(xBuf: FloatArray, yBuf: FloatArray, zBuf: FloatArray, count: Int): Float {
-        if (count < 15) return Float.MAX_VALUE
-        var sumX = 0f
-        var sumY = 0f
-        var sumZ = 0f
-        for (i in 0 until count) {
-            sumX += xBuf[i]
-            sumY += yBuf[i]
-            sumZ += zBuf[i]
+    private fun gauss(random: Random, sigma: Double): Float =
+        (random.nextGaussian() * sigma).toFloat()
+
+    private fun feedTable(
+        detector: StillnessDetector,
+        samples: Int = defaultSamples,
+        startMs: Long = 0L,
+        periodMs: Long = period50Hz,
+        accelNoise: Double = 0.006,
+        gyroBias: Float = 0f,
+        gyroNoise: Double = 0.002,
+        seed: Long = 42L,
+    ) {
+        val random = Random(seed)
+        detector.reset(startMs)
+        for (i in 0 until samples) {
+            val t = startMs + i * periodMs
+            detector.addAccelerometer(
+                gauss(random, accelNoise),
+                gauss(random, accelNoise),
+                -9.806f + gauss(random, accelNoise),
+                t,
+            )
+            detector.addGyroscope(
+                gyroBias + gauss(random, gyroNoise),
+                gyroBias + gauss(random, gyroNoise),
+                gyroBias + gauss(random, gyroNoise),
+                t,
+            )
         }
-        val meanX = sumX / count
-        val meanY = sumY / count
-        val meanZ = sumZ / count
-
-        var varSum = 0f
-        for (i in 0 until count) {
-            val dx = xBuf[i] - meanX
-            val dy = yBuf[i] - meanY
-            val dz = zBuf[i] - meanZ
-            varSum += (dx * dx + dy * dy + dz * dz)
-        }
-        return varSum / count
-    }
-
-    private fun computeGyroEnergy(sqBuf: FloatArray, count: Int): Float {
-        if (count < 15) return Float.MAX_VALUE
-        var sum = 0f
-        for (i in 0 until count) {
-            sum += sqBuf[i]
-        }
-        return sum / count
-    }
-
-    @Test
-    fun testTabletopPlacementPassesStillness() {
-        // Table resting: gravity ~ -9.81 m/s^2 on Z axis + typical MEMS thermal noise (sigma ~ 0.006 m/s^2)
-        val xBuf = FloatArray(windowSize)
-        val yBuf = FloatArray(windowSize)
-        val zBuf = FloatArray(windowSize)
-        val gyroSqBuf = FloatArray(windowSize)
-
-        val random = java.util.Random(42)
-        for (i in 0 until windowSize) {
-            val noiseX = (random.nextGaussian() * 0.006).toFloat()
-            val noiseY = (random.nextGaussian() * 0.006).toFloat()
-            val noiseZ = (random.nextGaussian() * 0.006).toFloat()
-            xBuf[i] = noiseX
-            yBuf[i] = noiseY
-            zBuf[i] = -9.806f + noiseZ
-
-            // Gyro thermal noise (sigma ~ 0.002 rad/s)
-            val gx = (random.nextGaussian() * 0.002).toFloat()
-            val gy = (random.nextGaussian() * 0.002).toFloat()
-            val gz = (random.nextGaussian() * 0.002).toFloat()
-            gyroSqBuf[i] = gx * gx + gy * gy + gz * gz
-        }
-
-        val accelVar = computeVariance(xBuf, yBuf, zBuf, windowSize)
-        val gyroEnergy = computeGyroEnergy(gyroSqBuf, windowSize)
-
-        println("Table simulation: accelVar=$accelVar, gyroEnergy=$gyroEnergy")
-        assertTrue("Table accel variance ($accelVar) should be well below $maxTableAccelVariance", accelVar <= maxTableAccelVariance)
-        assertTrue("Table gyro energy ($gyroEnergy) should be well below $maxTableGyroEnergy", gyroEnergy <= maxTableGyroEnergy)
     }
 
     @Test
-    fun testHandheldMidAirIsStrictlyRejected() {
-        // Handheld in mid-air: 8-12 Hz tremor (modeled as 10Hz sine with 0.10 m/s^2 amplitude)
-        // plus slow breathing/postural sway on gyro (~0.025 rad/s)
-        val xBuf = FloatArray(windowSize)
-        val yBuf = FloatArray(windowSize)
-        val zBuf = FloatArray(windowSize)
-        val gyroSqBuf = FloatArray(windowSize)
+    fun rigidTabletopPassesStillness() {
+        val detector = StillnessDetector(hasGyroscope = true)
+        feedTable(detector)
 
-        val random = java.util.Random(123)
-        val dt = 0.02f // 50Hz = 20ms
-        for (i in 0 until windowSize) {
-            val t = i * dt
-            val tremor = (0.10 * sin(2.0 * Math.PI * 10.0 * t)).toFloat()
-            val noiseX = (random.nextGaussian() * 0.015).toFloat()
-            val noiseY = (random.nextGaussian() * 0.015).toFloat()
-            val noiseZ = (random.nextGaussian() * 0.015).toFloat()
+        val result = detector.result()
+        println("Table: $result")
 
-            xBuf[i] = tremor * 0.5f + noiseX
-            yBuf[i] = tremor * 0.5f + noiseY
-            zBuf[i] = -9.806f + tremor + noiseZ
-
-            // Involuntary hand sway gyro ~ 0.025 rad/s
-            val gx = 0.020f + (random.nextGaussian() * 0.005).toFloat()
-            val gy = 0.015f + (random.nextGaussian() * 0.005).toFloat()
-            val gz = 0.010f + (random.nextGaussian() * 0.005).toFloat()
-            gyroSqBuf[i] = gx * gx + gy * gy + gz * gz
-        }
-
-        val accelVar = computeVariance(xBuf, yBuf, zBuf, windowSize)
-        val gyroEnergy = computeGyroEnergy(gyroSqBuf, windowSize)
-
-        println("Handheld simulation: accelVar=$accelVar, gyroEnergy=$gyroEnergy")
-        assertFalse("Handheld accel variance ($accelVar) must exceed table threshold $maxTableAccelVariance", accelVar <= maxTableAccelVariance)
-        assertFalse("Handheld gyro energy ($gyroEnergy) must exceed table threshold $maxTableGyroEnergy", gyroEnergy <= maxTableGyroEnergy)
+        assertTrue("tabletop window must be warmed up", result.warmedUp)
+        assertTrue("tabletop accel variance ${result.accelVariance} too high", result.accelVariance <= 0.0015f)
+        assertTrue("tabletop gyro variance ${result.gyroVariance} too high", result.gyroVariance <= 0.00030f)
+        assertTrue("rigid tabletop must be stationary", result.isStationary)
     }
 
     @Test
-    fun testProximityGatingLogic() {
-        // 1. Hardware optical proximity sensor in open air (FAR) must block entry
-        val hasOpticalProximity = true
-        val hasProximitySample = true
-        val isProximityNearInAir = false
-        val permitInAir = !hasOpticalProximity || !hasProximitySample || isProximityNearInAir
-        assertFalse("Optical proximity in open air must NOT permit flip-down entry", permitInAir)
+    fun handheldMidAirTremorIsRejected() {
+        val detector = StillnessDetector(hasGyroscope = true)
+        detector.reset(0L)
+        val random = Random(123)
 
-        // 2. Hardware optical proximity sensor on desk (NEAR) permits entry
-        val isProximityNearOnDesk = true
-        val permitOnDesk = !hasOpticalProximity || !hasProximitySample || isProximityNearOnDesk
-        assertTrue("Optical proximity against desk surface must permit flip-down entry", permitOnDesk)
+        for (i in 0 until defaultSamples) {
+            val t = i * period50Hz
+            val seconds = t / 1000.0
+            val tremor = (0.10 * sin(2.0 * PI * 10.0 * seconds)).toFloat()
 
-        // 3. Virtual proximity falls through to stillness verification
-        val isVirtual = false // hasOpticalProximity = false
-        val permitVirtual = !isVirtual || !hasProximitySample || isProximityNearInAir
-        assertTrue("Virtual proximity must fall back to motion variance verification", permitVirtual)
+            detector.addAccelerometer(
+                tremor * 0.5f + gauss(random, 0.015),
+                tremor * 0.5f + gauss(random, 0.015),
+                -9.806f + tremor + gauss(random, 0.015),
+                t,
+            )
+            // Physiological sway is time-varying, not a constant bias.
+            detector.addGyroscope(
+                (0.030 * sin(2.0 * PI * 1.5 * seconds)).toFloat() + gauss(random, 0.005),
+                (0.020 * sin(2.0 * PI * 1.2 * seconds + 1.0)).toFloat() + gauss(random, 0.005),
+                (0.015 * sin(2.0 * PI * 2.0 * seconds + 2.0)).toFloat() + gauss(random, 0.005),
+                t,
+            )
+        }
+
+        val result = detector.result()
+        println("Handheld: $result")
+
+        assertTrue("hand tremor must exceed the accel threshold", result.accelVariance > 0.0015f)
+        assertTrue("hand sway must exceed the gyro threshold", result.gyroVariance > 0.00030f)
+        assertFalse("handheld mid-air pose must be rejected", result.isStationary)
+    }
+
+    @Test
+    fun constantGyroZeroRateBiasStillPassesOnTable() {
+        // A 0.03 rad/s zero-rate offset is far larger than the stillness
+        // threshold if it is treated as energy. De-meaning must cancel it.
+        val detector = StillnessDetector(hasGyroscope = true)
+        feedTable(detector, gyroBias = 0.03f, gyroNoise = 0.002)
+
+        val result = detector.result()
+        println("Biased gyro: $result")
+
+        assertTrue("bias must be removed by de-meaned variance", result.gyroVariance <= 0.00030f)
+        assertTrue(result.isStationary)
+    }
+
+    @Test
+    fun lowSampleRateWithLandingImpactInWarmupPasses() {
+        // 25 Hz means only ~50 samples fit in a 2 s window. Drop the first
+        // 300 ms (including the landing spike) or the buffer never recovers.
+        val detector = StillnessDetector(hasGyroscope = true)
+        val random = Random(7)
+        detector.reset(0L)
+
+        for (i in 0 until 80) {
+            val t = i * 40L
+            val impact = t < 300L
+            val accelSigma = if (impact) 2.5 else 0.004
+            val gyroSigma = if (impact) 1.5 else 0.002
+            detector.addAccelerometer(
+                gauss(random, accelSigma),
+                gauss(random, accelSigma),
+                -9.806f + gauss(random, accelSigma),
+                t,
+            )
+            detector.addGyroscope(
+                gauss(random, gyroSigma),
+                gauss(random, gyroSigma),
+                gauss(random, gyroSigma),
+                t,
+            )
+        }
+
+        val result = detector.result()
+        println("25Hz + impact: $result")
+
+        assertTrue("window should be warmed up after the 300 ms drop", result.warmedUp)
+        assertTrue("warm-up must discard landing impact spikes", result.isStationary)
+    }
+
+    @Test
+    fun deviceWithoutGyroscopeFallsBackToAccelOnly() {
+        val detector = StillnessDetector(hasGyroscope = false)
+        feedTable(detector, accelNoise = 0.004)
+
+        val result = detector.result()
+        println("No gyro table: $result")
+
+        assertTrue("accel-only tabletop must pass", result.isStationary)
+        assertEquals("no gyro samples should be required", 0, result.gyroSampleCount)
+    }
+
+    @Test
+    fun deviceWithoutGyroscopeStillRejectsHandheldShake() {
+        val detector = StillnessDetector(hasGyroscope = false)
+        detector.reset(0L)
+        val random = Random(99)
+
+        for (i in 0 until defaultSamples) {
+            val t = i * period50Hz
+            val seconds = t / 1000.0
+            detector.addAccelerometer(
+                (0.60 * sin(2.0 * PI * 3.0 * seconds)).toFloat() + gauss(random, 0.01),
+                (0.50 * sin(2.0 * PI * 2.5 * seconds + 0.7)).toFloat() + gauss(random, 0.01),
+                -9.806f + (0.40 * sin(2.0 * PI * 4.0 * seconds + 1.3)).toFloat() + gauss(random, 0.01),
+                t,
+            )
+        }
+
+        val result = detector.result()
+        println("No gyro shake: $result")
+
+        assertTrue("accel-only shake must exceed the tighter threshold", result.accelVariance > 0.0010f)
+        assertFalse("handheld shake must be rejected without a gyroscope", result.isStationary)
     }
 }

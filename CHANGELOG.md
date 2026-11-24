@@ -2,6 +2,18 @@
 
 All notable changes to flip2shhh are documented in this file.
 
+## [1.0.7] - 2026-11-24
+
+- **Framework-Free Detection Core**: Extracted `StillnessDetector` and `FlipStateMachine` as pure Kotlin classes with injected hardware capabilities and `elapsedRealtime` timestamps, so flip detection is unit-testable without Android.
+- **No-Gyroscope Fallback**: Devices without a gyroscope no longer dead-loop through the 2 s countdown. They use accelerometer-only variance with a slightly tighter threshold and a 2.5 s stillness window.
+- **Gyro Bias & Impact Handling**: Replaced raw gyro energy with three-axis de-meaned variance, and discard the first 300 ms of every high-rate window to ignore cold-start transients and landing impacts. Disturbances reset both the countdown and the sample buffers.
+- **Battery & Retry Safety**: Added a 3-attempt stillness circuit breaker that drops back to low-power listening until the phone is lifted, and simplified wake-lock renewal to a single timeout-extending `acquire()`.
+- **Low-Power Sensor Modes**: Idle orientation uses non-wake-up sensors with 500 ms FIFO batching. After flip-down, significant motion plus wake-up proximity replace continuous gravity when supported, restoring gravity only for the exit debounce.
+- **DND Bounce-Back Guard**: An external DND-off is latched until the phone is lifted, so a still-face-down phone cannot immediately re-enable DND.
+- **Proximity First-Frame Race**: The first optical proximity sample is awaited for up to 500 ms with a stillness fallback, avoiding mid-air entry when the HAL is cold.
+- **Dedicated Sensor Thread**: 50 Hz callbacks, debounce timers and state changes run on a private `HandlerThread`; the DND receiver is registered with `RECEIVER_NOT_EXPORTED`.
+- **Tests**: Rewrote `StillnessDetectorTest` against production code and added `FlipStateMachineTest`, covering 11 tabletop, tremor, bias, low-rate impact, no-gyro, retry-cooldown and DND-suppression scenarios.
+
 ## [1.0.6] - 2026-11-19
 
 - **3-Tier Monet & Samsung One UI Dynamic Color**: Rebuilt `MonetThemeResolver` to use native `dynamicDarkColorScheme`/`dynamicLightColorScheme` on Pixel/AOSP, read the underlying system tonal palette (`system_accent*` / `system_neutral*`) or generate HCT schemes via `MaterialKolor` on Samsung One UI (bypassing One UI 9's `#387AFF` / `#94B8FF` static blue override on `system_primary`), and fall back cleanly to the canonical M3E purple palette when dynamic color is unavailable.
