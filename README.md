@@ -1,3 +1,8 @@
+> [!WARNING]
+> **Permanently discontinued & archived.** This project is no longer maintained and will receive no further updates.
+>
+> Successor project: **[wg2038/shhh](https://github.com/wg2038/shhh)**
+
 <div align="center">
 
 # flip2shhh
@@ -45,7 +50,7 @@ The detector runs in a `specialUse` foreground service with a minimal-importance
 
 ## Two editions
 
-- **Standard Edition — `main`, v1.0.8.** The daily-use build described above.
+- **Standard Edition — `main`, v1.0.8 (Permanently discontinued).** The daily-use build described above.
 - **Memorial Edition — `easter-egg`, v2.1.5.4 (Permanently discontinued).** The same foundation plus a terminal music-player easter egg: seven taps on the version number in the About page open a Linux-style terminal with an embedded song and synced lyrics.
 
 Both editions share the package name `shhh.cicada.flip` and one signing key. Installing one over the other requires uninstalling the first.
